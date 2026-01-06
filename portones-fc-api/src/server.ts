@@ -1,7 +1,7 @@
 import Fastify from 'fastify'
 import { createClient } from '@supabase/supabase-js'
-import mqtt from 'mqtt'
 import dotenv from 'dotenv'
+import { connectMQTT } from './plugins/mqtt'
 
 dotenv.config()
 
@@ -24,50 +24,13 @@ const supabaseAdmin = createClient(
 )
 
 // MQTT client configuration
-let mqttClient: mqtt.MqttClient | null = null
 
-const connectMQTT = (): Promise<mqtt.MqttClient> => {
-  return new Promise((resolve, reject) => {
-    if (mqttClient && mqttClient.connected) {
-      return resolve(mqttClient)
-    }
 
-    const options: mqtt.IClientOptions = {
-      host: process.env.MQTT_HOST || 'localhost',
-      port: parseInt(process.env.MQTT_PORT || '8883'),
-      username: process.env.MQTT_USERNAME || '',
-      password: process.env.MQTT_PASSWORD || '',
-      protocol: process.env.MQTT_USE_TLS === 'true' ? 'mqtts' : 'mqtt',
-      reconnectPeriod: 5000,
-      connectTimeout: 30000
-    }
-
-    mqttClient = mqtt.connect(options)
-
-    mqttClient.on('connect', () => {
-      fastify.log.info('Connected to MQTT broker')
-      resolve(mqttClient!)
-    })
-
-    mqttClient.on('error', (error) => {
-      fastify.log.error({ error }, 'MQTT connection error')
-      reject(error)
-    })
-
-    mqttClient.on('offline', () => {
-      fastify.log.warn('MQTT client is offline')
-    })
-
-    mqttClient.on('reconnect', () => {
-      fastify.log.info('Reconnecting to MQTT broker...')
-    })
-  })
-}
 
 // Authentication middleware
 fastify.addHook('preHandler', async (request, reply) => {
   // Skip auth for health check
-  if (request.url === '/health') {
+  if (request.url === '/health' || request.url === '/dev/test-mqtt')  {
     return
   }
 
@@ -113,7 +76,7 @@ fastify.get('/health', async (request, reply) => {
   return {
     status: 'ok',
     timestamp: new Date().toISOString(),
-    mqtt: mqttClient?.connected ? 'connected' : 'disconnected'
+    mqtt: 'unknown'
   }
 })
 
@@ -232,14 +195,6 @@ fastify.post('/gate/open', async (request, reply) => {
 const gracefulShutdown = async () => {
   fastify.log.info('Shutting down gracefully...')
 
-  if (mqttClient) {
-    await new Promise<void>((resolve) => {
-      mqttClient!.end(false, {}, () => {
-        fastify.log.info('MQTT connection closed')
-        resolve()
-      })
-    })
-  }
 
   await fastify.close()
   process.exit(0)
@@ -252,7 +207,7 @@ process.on('SIGINT', gracefulShutdown)
 const start = async () => {
   try {
     // Initialize MQTT connection on startup
-    await connectMQTT()
+    // await connectMQTT()
 
     const port = parseInt(process.env.PORT || '3000')
     await fastify.listen({ port, host: '0.0.0.0' })
