@@ -10,6 +10,26 @@ const fastify = Fastify({
   logger: true
 })
 
+// Ruta de prueba MQTT
+fastify.post('/dev/test-mqtt', async (request, reply) => {
+  try {
+    const client = await connectMQTT();
+
+    const payload = {
+      action: 'OPEN',
+      source: 'backend',
+      timestamp: new Date().toISOString()
+    };
+
+    client.publish('portones/gate/command', JSON.stringify(payload), { qos: 1 });
+
+    return { ok: true, payload };
+  } catch (err) {
+    console.error(err);
+    reply.status(500).send({ ok: false, error: err });
+  }
+});
+
 // Initialize Supabase clients
 // Anon client for JWT validation
 const supabase = createClient(

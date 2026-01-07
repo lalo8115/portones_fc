@@ -21,20 +21,34 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
 
     mqttClient.on('connect', () => {
       console.info('Connected to MQTT broker')
+    mqttClient!.subscribe('portones/gate/status', (err) => {
+      if (err) {
+        console.error('Failed to subscribe to status topic', err)
+      } else {
+        console.info('Subscribed to portones/gate/status')
+      }
+    })
       resolve(mqttClient!)
     })
-
+    
     mqttClient.on('error', (error) => {
       console.error({ error }, 'MQTT connection error')
       reject(error)
     })
-
+    
     mqttClient.on('offline', () => {
       console.warn('MQTT client is offline')
     })
-
+    
     mqttClient.on('reconnect', () => {
       console.info('Reconnecting to MQTT broker...')
     })
+    mqttClient.on('message', (topic, message) => {
+      console.log('MQTT message received:', {
+        topic,
+        payload: message.toString()
+      })
+    })
   })
 }
+
