@@ -10,6 +10,12 @@ const fastify = Fastify({
   logger: true
 })
 
+import { getAllGatesStatus } from './state/gates'
+
+fastify.get('/gates', async () => {
+  return getAllGatesStatus()
+})
+
 // Ruta de prueba MQTT
 fastify.post('/dev/test-mqtt', async (request, reply) => {
   try {
@@ -227,7 +233,7 @@ process.on('SIGINT', gracefulShutdown)
 const start = async () => {
   try {
     // Initialize MQTT connection on startup
-    // await connectMQTT()
+    await connectMQTT()
 
     const port = parseInt(process.env.PORT || '3000')
     await fastify.listen({ port, host: '0.0.0.0' })

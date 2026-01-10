@@ -1,4 +1,5 @@
 import mqtt from 'mqtt'
+import { setGateStatus } from '../state/gates'
 let mqttClient: mqtt.MqttClient | null = null
 
 export const connectMQTT = (): Promise<mqtt.MqttClient> => {
@@ -9,7 +10,7 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
 
     const options: mqtt.IClientOptions = {
       host: process.env.MQTT_HOST || 'localhost',
-      port: parseInt(process.env.MQTT_PORT || '8883'),
+      port: parseInt(process.env.MQTT_PORT || '1883'),
       username: process.env.MQTT_USERNAME || '',
       password: process.env.MQTT_PASSWORD || '',
       protocol: process.env.MQTT_USE_TLS === 'true' ? 'mqtts' : 'mqtt',
@@ -44,10 +45,27 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
       console.info('Reconnecting to MQTT broker...')
     })
     mqttClient.on('message', (topic, message) => {
-      console.log('MQTT message received:', {
-        topic,
-        payload: message.toString()
-      })
+      const payload = message.toString()
+      console.log('MQTT message received:', { topic, payload })
+
+      if (topic === 'portones/gate/status') {
+        try {
+          const data = JSON.parse(payload)
+
+          const gateId = Number(data.gateId)
+          const status = data.status
+          if (!gateId || !status) {
+            console.warn('Invalid gate status payload', data)
+            return
+          }
+
+          setGateStatus(gateId, status)
+
+          console.info(`Gate ${gateId} status updated to ${status}`)
+        } catch (err) {
+          console.error('Invalid MQTT status message', err)
+        }
+      }
     })
   })
 }
