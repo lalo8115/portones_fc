@@ -1,19 +1,57 @@
 import Fastify from 'fastify'
+import cors from '@fastify/cors'
 import { createClient } from '@supabase/supabase-js'
-import dotenv from 'dotenv'
+import { config } from './config/env'
 import { connectMQTT } from './plugins/mqtt'
-
-dotenv.config()
+import { getAllGatesStatus } from './state/gates'
 
 // Initialize Fastify
 const fastify = Fastify({
   logger: true
 })
 
-import { getAllGatesStatus } from './state/gates'
+// Register CORS plugin
+await fastify.register(cors, {
+  origin: true, // Allow all origins (development)
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true
+})
 
-fastify.get('/gates', async () => {
-  return getAllGatesStatus()
+fastify.get('/gates', async (request, reply) => {
+  try {
+    const user = (request as any).user
+
+    // Get user profile to verify access
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    if (profile.role === 'revoked') {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Access has been revoked'
+      })
+      return
+    }
+
+    return getAllGatesStatus()
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /gates')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to get gates status'
+    })
+  }
 })
 
 // Ruta de prueba MQTT
@@ -39,14 +77,14 @@ fastify.post('/dev/test-mqtt', async (request, reply) => {
 // Initialize Supabase clients
 // Anon client for JWT validation
 const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_ANON_KEY || ''
+  config.SUPABASE_URL,
+  config.SUPABASE_ANON_KEY
 )
 
 // Service role client for database operations (bypasses RLS)
 const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  config.SUPABASE_URL,
+  config.SUPABASE_SERVICE_ROLE_KEY
 )
 
 // MQTT client configuration
@@ -110,8 +148,18 @@ fastify.get('/health', async (request, reply) => {
 fastify.post('/gate/open', async (request, reply) => {
   try {
     const user = (request as any).user
+    const { gateId } = request.body as any
 
-    fastify.log.info(`User ${user.id} requested to open gate`)
+    // Validate gateId
+    if (!gateId || typeof gateId !== 'number' || gateId < 1 || gateId > 4) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'gateId must be a number between 1 and 4'
+      })
+      return
+    }
+
+    fastify.log.info(`User ${user.id} requested to open gate ${gateId}`)
 
     // 1. Get user profile and validate role
     const { data: profile, error: profileError } = await supabaseAdmin
@@ -133,7 +181,6 @@ fastify.post('/gate/open', async (request, reply) => {
     if (profile.role === 'revoked') {
       fastify.log.warn(`User ${user.id} access revoked`)
 
-      // Log the denied attempt
       await supabaseAdmin.from('access_logs').insert({
         user_id: user.id,
         action: 'OPEN_GATE',
@@ -154,12 +201,13 @@ fastify.post('/gate/open', async (request, reply) => {
     // Prepare payload
     const payload = {
       action: 'OPEN',
+      gateId,
       timestamp: new Date().toISOString(),
       userId: user.id
     }
 
-    // Publish to MQTT topic
-    return new Promise((resolve, reject) => {
+    // Publish to MQTT topic with callback
+    await new Promise<void>((resolve, reject) => {
       client.publish(
         'portones/gate/command',
         JSON.stringify(payload),
@@ -167,38 +215,28 @@ fastify.post('/gate/open', async (request, reply) => {
         (error) => {
           if (error) {
             fastify.log.error({ error }, 'MQTT publish error')
-            reply.status(500).send({
-              error: 'MQTT Error',
-              message: 'Failed to send command to gate'
-            })
             reject(error)
           } else {
             fastify.log.info('Command published successfully')
-
-            // 3. Log successful access
-            supabaseAdmin
-              .from('access_logs')
-              .insert({
-                user_id: user.id,
-                action: 'OPEN_GATE',
-                status: 'SUCCESS',
-                ip_address: request.ip
-              })
-              .then(({ error: logError }) => {
-                if (logError) {
-                  fastify.log.error({ error: logError }, 'Failed to log access')
-                }
-              })
-
-            reply.send({
-              success: true,
-              message: 'Gate opening command sent',
-              timestamp: payload.timestamp
-            })
-            resolve(null)
+            resolve()
           }
         }
       )
+    })
+
+    // Log successful access
+    await supabaseAdmin.from('access_logs').insert({
+      user_id: user.id,
+      action: 'OPEN_GATE',
+      status: 'SUCCESS',
+      ip_address: request.ip
+    })
+
+    reply.send({
+      success: true,
+      message: 'Gate opening command sent',
+      gateId,
+      timestamp: payload.timestamp
     })
   } catch (error) {
     fastify.log.error({ error }, 'Error in /gate/open')
@@ -217,12 +255,130 @@ fastify.post('/gate/open', async (request, reply) => {
   }
 })
 
+// Gate close route
+fastify.post('/gate/close', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { gateId } = request.body as any
+
+    // Validate gateId
+    if (!gateId || typeof gateId !== 'number' || gateId < 1 || gateId > 4) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'gateId must be a number between 1 and 4'
+      })
+      return
+    }
+
+    fastify.log.info(`User ${user.id} requested to close gate ${gateId}`)
+
+    // 1. Get user profile and validate role
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role, apartment_unit')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      fastify.log.error({ error: profileError }, 'Profile not found')
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    // 2. Check if user has access (not revoked)
+    if (profile.role === 'revoked') {
+      fastify.log.warn(`User ${user.id} access revoked`)
+
+      await supabaseAdmin.from('access_logs').insert({
+        user_id: user.id,
+        action: 'CLOSE_GATE',
+        status: 'DENIED_REVOKED',
+        ip_address: request.ip
+      })
+
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Access has been revoked. Contact administration.'
+      })
+      return
+    }
+
+    // Connect to MQTT if not already connected
+    const client = await connectMQTT()
+
+    // Prepare payload
+    const payload = {
+      action: 'CLOSE',
+      gateId,
+      timestamp: new Date().toISOString(),
+      userId: user.id
+    }
+
+    // Publish to MQTT topic with callback
+    await new Promise<void>((resolve, reject) => {
+      client.publish(
+        'portones/gate/command',
+        JSON.stringify(payload),
+        { qos: 1 },
+        (error) => {
+          if (error) {
+            fastify.log.error({ error }, 'MQTT publish error')
+            reject(error)
+          } else {
+            fastify.log.info('Close command published successfully')
+            resolve()
+          }
+        }
+      )
+    })
+
+    // Log successful access
+    await supabaseAdmin.from('access_logs').insert({
+      user_id: user.id,
+      action: 'CLOSE_GATE',
+      status: 'SUCCESS',
+      ip_address: request.ip
+    })
+
+    reply.send({
+      success: true,
+      message: 'Gate closing command sent',
+      gateId,
+      timestamp: payload.timestamp
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /gate/close')
+
+    if (error instanceof Error) {
+      reply.status(500).send({
+        error: 'Server Error',
+        message: error.message
+      })
+    } else {
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Failed to process gate close request'
+      })
+    }
+  }
+})
+
 // Graceful shutdown
 const gracefulShutdown = async () => {
   fastify.log.info('Shutting down gracefully...')
 
-
+  // Close Fastify server
   await fastify.close()
+  
+  // Close MQTT connection if exists
+  if (global.mqttClient) {
+    global.mqttClient.end()
+    fastify.log.info('MQTT connection closed')
+  }
+
   process.exit(0)
 }
 
@@ -235,10 +391,11 @@ const start = async () => {
     // Initialize MQTT connection on startup
     await connectMQTT()
 
-    const port = parseInt(process.env.PORT || '3000')
+    const port = config.PORT
     await fastify.listen({ port, host: '0.0.0.0' })
 
-    fastify.log.info(`Server listening on port ${port}`)
+    fastify.log.info(`✅ Server listening on port ${port}`)
+    fastify.log.info(`🚀 Ready to accept connections`)
   } catch (error) {
     fastify.log.error(error)
     process.exit(1)

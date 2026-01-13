@@ -1,6 +1,12 @@
 import mqtt from 'mqtt'
 import { setGateStatus } from '../state/gates'
+
 let mqttClient: mqtt.MqttClient | null = null
+
+// Hacer el cliente disponible globalmente para shutdown
+declare global {
+  var mqttClient: mqtt.MqttClient | null
+}
 
 export const connectMQTT = (): Promise<mqtt.MqttClient> => {
   return new Promise((resolve, reject) => {
@@ -19,16 +25,17 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
     }
 
     mqttClient = mqtt.connect(options)
+    global.mqttClient = mqttClient
 
     mqttClient.on('connect', () => {
-      console.info('Connected to MQTT broker')
-    mqttClient!.subscribe('portones/gate/status', (err) => {
-      if (err) {
-        console.error('Failed to subscribe to status topic', err)
-      } else {
-        console.info('Subscribed to portones/gate/status')
-      }
-    })
+      console.info('✅ Connected to MQTT broker')
+      mqttClient!.subscribe('portones/gate/status', (err) => {
+        if (err) {
+          console.error('Failed to subscribe to status topic', err)
+        } else {
+          console.info('✅ Subscribed to portones/gate/status')
+        }
+      })
       resolve(mqttClient!)
     })
     
@@ -38,15 +45,16 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
     })
     
     mqttClient.on('offline', () => {
-      console.warn('MQTT client is offline')
+      console.warn('⚠️  MQTT client is offline')
     })
     
     mqttClient.on('reconnect', () => {
-      console.info('Reconnecting to MQTT broker...')
+      console.info('🔄 Reconnecting to MQTT broker...')
     })
+
     mqttClient.on('message', (topic, message) => {
       const payload = message.toString()
-      console.log('MQTT message received:', { topic, payload })
+      console.log('📨 MQTT message received:', { topic, payload })
 
       if (topic === 'portones/gate/status') {
         try {
@@ -61,7 +69,7 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
 
           setGateStatus(gateId, status)
 
-          console.info(`Gate ${gateId} status updated to ${status}`)
+          console.info(`✅ Gate ${gateId} status updated to ${status}`)
         } catch (err) {
           console.error('Invalid MQTT status message', err)
         }
@@ -69,4 +77,5 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
     })
   })
 }
+
 

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ESP32Servo.h>
 #include <ArduinoJson.h>
@@ -8,19 +9,19 @@
 #define SERVO_PIN 13  // GPIO 13 for servo control
 
 // ==================== WIFI CONFIGURATION ====================
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID = "Wokwi-GUEST";
+const char* WIFI_PASSWORD = "";
 
 // ==================== MQTT CONFIGURATION ====================
-const char* MQTT_BROKER = "your-hivemq-broker.hivemq.cloud";
+const char* MQTT_BROKER = "9c1124975c2646a1956d1f7c409b5ec7.s1.eu.hivemq.cloud";
 const int MQTT_PORT = 8883;  // Use 8883 for TLS/SSL
-const char* MQTT_USERNAME = "your-mqtt-username";
-const char* MQTT_PASSWORD = "your-mqtt-password";
+const char* MQTT_USERNAME = "pedropapas";
+const char* MQTT_PASSWORD = "Pedro9090";
 const char* MQTT_CLIENT_ID = "ESP32_GateController";
 const char* MQTT_TOPIC = "portones/gate/command";
 
 // ==================== GLOBAL OBJECTS ====================
-WiFiClient espClient;
+WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
 Servo gateServo;
 
@@ -116,6 +117,9 @@ void setupWiFi() {
 
 // ==================== MQTT SETUP ====================
 void setupMQTT() {
+  // Disable certificate verification for development
+  espClient.setInsecure();
+  
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   
