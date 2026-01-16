@@ -54,7 +54,7 @@ export const connectMQTT = (): Promise<mqtt.MqttClient> => {
 
     mqttClient.on('message', (topic, message) => {
       const payload = message.toString()
-      console.log('📨 MQTT message received:', { topic, payload })
+      //console.log('📨 MQTT message received:', { topic, payload })
 
       if (topic === 'portones/gate/status') {
         try {

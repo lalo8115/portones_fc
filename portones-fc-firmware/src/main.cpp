@@ -1,255 +1,119 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ESP32Servo.h>
 #include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
 
-// ==================== PIN CONFIGURATION ====================
-#define SERVO_PIN 13  // GPIO 13 for servo control
+// ==================== CONFIGURACIÓN DE PINES ====================
+const int NUM_GATES = 4;
+const int SERVO_PINS[NUM_GATES] = {13, 12, 14, 27}; // Pines para Portón 1, 2, 3, 4
 
-// ==================== WIFI CONFIGURATION ====================
+// ==================== WIFI & MQTT ====================
 const char* WIFI_SSID = "Wokwi-GUEST";
 const char* WIFI_PASSWORD = "";
-
-// ==================== MQTT CONFIGURATION ====================
 const char* MQTT_BROKER = "9c1124975c2646a1956d1f7c409b5ec7.s1.eu.hivemq.cloud";
-const int MQTT_PORT = 8883;  // Use 8883 for TLS/SSL
-const char* MQTT_USERNAME = "pedropapas";
-const char* MQTT_PASSWORD = "Pedro9090";
-const char* MQTT_CLIENT_ID = "ESP32_GateController";
+const int MQTT_PORT = 8883;
 const char* MQTT_TOPIC = "portones/gate/command";
 
-// ==================== GLOBAL OBJECTS ====================
+// ==================== OBJETOS Y ESTADOS ====================
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
-Servo gateServo;
+Servo gateServos[NUM_GATES];
 
-// ==================== GATE STATE ====================
-enum GateState {
-  IDLE,
-  OPENING,
-  OPEN,
-  CLOSING
-};
+enum GateState { IDLE, OPEN };
+GateState states[NUM_GATES] = {IDLE, IDLE, IDLE, IDLE};
+unsigned long openTimers[NUM_GATES] = {0, 0, 0, 0};
 
-GateState currentState = IDLE;
-unsigned long gateOpenTime = 0;
-const unsigned long GATE_OPEN_DURATION = 5000; // 5 seconds
+const unsigned long GATE_OPEN_DURATION = 5000;
+const int POS_CLOSED = 0;
+const int POS_OPEN = 90;
 
-// Servo positions
-const int SERVO_CLOSED_POSITION = 0;    // 0 degrees = closed
-const int SERVO_OPEN_POSITION = 90;     // 90 degrees = open
-
-// ==================== FUNCTION DECLARATIONS ====================
+// Prototipos
 void setupWiFi();
-void setupMQTT();
 void reconnectMQTT();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
-void processGateCommand(const char* action);
-void updateGateState();
-void openGate();
-void closeGate();
+void processCommand(int gateId, const char* action);
+void updateGates();
+void publishStatus(int gateId, const char* status);
 
-// ==================== SETUP ====================
 void setup() {
   Serial.begin(115200);
-  delay(1000);
   
-  Serial.println("\n\n==========================================");
-  Serial.println("   ESP32 Gate Controller Starting...");
-  Serial.println("==========================================\n");
+  // Inicializar los 4 servos
+  for(int i = 0; i < NUM_GATES; i++) {
+    gateServos[i].attach(SERVO_PINS[i]);
+    gateServos[i].write(POS_CLOSED);
+    Serial.printf("[SERVO %d] Inicializado en pin %d\n", i + 1, SERVO_PINS[i]);
+  }
 
-  // Initialize servo
-  gateServo.attach(SERVO_PIN);
-  gateServo.write(SERVO_CLOSED_POSITION);
-  Serial.println("[SERVO] Initialized on GPIO " + String(SERVO_PIN));
-  Serial.println("[SERVO] Set to closed position (0°)");
-
-  // Connect to WiFi
   setupWiFi();
-
-  // Setup MQTT
-  setupMQTT();
-
-  Serial.println("\n[SYSTEM] Setup complete. Ready to receive commands.\n");
+  espClient.setInsecure();
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
 }
 
-// ==================== MAIN LOOP ====================
 void loop() {
-  // Ensure MQTT connection
-  if (!mqttClient.connected()) {
-    reconnectMQTT();
-  }
+  if (!mqttClient.connected()) reconnectMQTT();
   mqttClient.loop();
-
-  // Update gate state (non-blocking)
-  updateGateState();
-
-  // Small delay to prevent watchdog issues
+  updateGates();
   delay(10);
 }
 
-// ==================== WIFI SETUP ====================
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, payload, length);
+
+  // Esperamos JSON: {"gateId": 1-4, "action": "OPEN"}
+  int gateId = doc["gateId"]; 
+  const char* action = doc["action"];
+
+  if (action && gateId >= 1 && gateId <= NUM_GATES) {
+    processCommand(gateId, action);
+  }
+}
+
+void processCommand(int gateId, const char* action) {
+  int idx = gateId - 1; // convertimos a índice 0-based
+  if (idx < 0 || idx >= NUM_GATES) return;
+
+  if (strcmp(action, "OPEN") == 0 && states[idx] == IDLE) {
+    Serial.printf("[GATE %d] Abriendo...\n", gateId);
+    gateServos[idx].write(POS_OPEN);
+    states[idx] = OPEN;
+    openTimers[idx] = millis();
+    publishStatus(gateId, "OPEN");
+  }
+}
+
+void updateGates() {
+  for (int i = 0; i < NUM_GATES; i++) {
+    if (states[i] == OPEN && (millis() - openTimers[i] >= GATE_OPEN_DURATION)) {
+      int gateId = i + 1;
+      Serial.printf("[GATE %d] Cerrando automáticamente...\n", gateId);
+      gateServos[i].write(POS_CLOSED);
+      states[i] = IDLE;
+      publishStatus(gateId, "CLOSED");
+    }
+  }
+}
+
+void publishStatus(int gateId, const char* status) {
+  char statusMsg[80];
+  snprintf(statusMsg, sizeof(statusMsg), "{\"gateId\": %d, \"status\": \"%s\"}", gateId, status);
+  mqttClient.publish("portones/gate/status", statusMsg);
+}
+
 void setupWiFi() {
-  Serial.println("[WiFi] Connecting to: " + String(WIFI_SSID));
-  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n[WiFi] Connected!");
-    Serial.println("[WiFi] IP Address: " + WiFi.localIP().toString());
-    Serial.println("[WiFi] Signal Strength: " + String(WiFi.RSSI()) + " dBm");
-  } else {
-    Serial.println("\n[WiFi] Connection failed!");
-    Serial.println("[WiFi] Restarting in 5 seconds...");
-    delay(5000);
-    ESP.restart();
-  }
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.println("\nWiFi Conectado");
 }
 
-// ==================== MQTT SETUP ====================
-void setupMQTT() {
-  // Disable certificate verification for development
-  espClient.setInsecure();
-  
-  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-  mqttClient.setCallback(mqttCallback);
-  
-  Serial.println("[MQTT] Broker: " + String(MQTT_BROKER) + ":" + String(MQTT_PORT));
-  
-  reconnectMQTT();
-}
-
-// ==================== MQTT RECONNECT ====================
 void reconnectMQTT() {
   while (!mqttClient.connected()) {
-    Serial.println("[MQTT] Attempting connection...");
-    
-    if (mqttClient.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-      Serial.println("[MQTT] Connected!");
-      
-      // Subscribe to command topic
-      if (mqttClient.subscribe(MQTT_TOPIC)) {
-        Serial.println("[MQTT] Subscribed to topic: " + String(MQTT_TOPIC));
-      } else {
-        Serial.println("[MQTT] Failed to subscribe to topic!");
-      }
-      
-      // Publish online status
-      mqttClient.publish("portones/gate/status", "{\"status\":\"online\"}");
-      
-    } else {
-      Serial.print("[MQTT] Connection failed, rc=");
-      Serial.println(mqttClient.state());
-      Serial.println("[MQTT] Retrying in 5 seconds...");
-      delay(5000);
-    }
-  }
-}
-
-// ==================== MQTT CALLBACK ====================
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  Serial.println("\n[MQTT] Message received on topic: " + String(topic));
-  
-  // Convert payload to string
-  char message[length + 1];
-  memcpy(message, payload, length);
-  message[length] = '\0';
-  
-  Serial.println("[MQTT] Payload: " + String(message));
-
-  // Parse JSON
-  StaticJsonDocument<256> doc;
-  DeserializationError error = deserializeJson(doc, message);
-
-  if (error) {
-    Serial.println("[JSON] Parse failed: " + String(error.c_str()));
-    return;
-  }
-
-  // Extract action
-  const char* action = doc["action"];
-  const char* timestamp = doc["timestamp"];
-
-  if (action) {
-    Serial.println("[COMMAND] Action: " + String(action));
-    if (timestamp) {
-      Serial.println("[COMMAND] Timestamp: " + String(timestamp));
-    }
-    
-    processGateCommand(action);
-  } else {
-    Serial.println("[COMMAND] No action field found in JSON");
-  }
-}
-
-// ==================== PROCESS GATE COMMAND ====================
-void processGateCommand(const char* action) {
-  if (strcmp(action, "OPEN") == 0) {
-    if (currentState == IDLE) {
-      Serial.println("\n[GATE] Command accepted: OPEN");
-      openGate();
-    } else {
-      Serial.println("[GATE] Command ignored: Gate is busy (State: " + String(currentState) + ")");
-    }
-  } else {
-    Serial.println("[GATE] Unknown command: " + String(action));
-  }
-}
-
-// ==================== OPEN GATE ====================
-void openGate() {
-  Serial.println("[GATE] Opening gate...");
-  currentState = OPENING;
-  
-  gateServo.write(SERVO_OPEN_POSITION);
-  
-  Serial.println("[SERVO] Moved to open position (" + String(SERVO_OPEN_POSITION) + "°)");
-  
-  currentState = OPEN;
-  gateOpenTime = millis();
-  
-  // Publish status
-  mqttClient.publish("portones/gate/status", "{\"status\":\"open\"}");
-  
-  Serial.println("[GATE] Gate is now OPEN");
-  Serial.println("[GATE] Will close in " + String(GATE_OPEN_DURATION / 1000) + " seconds");
-}
-
-// ==================== CLOSE GATE ====================
-void closeGate() {
-  Serial.println("[GATE] Closing gate...");
-  currentState = CLOSING;
-  
-  gateServo.write(SERVO_CLOSED_POSITION);
-  
-  Serial.println("[SERVO] Moved to closed position (" + String(SERVO_CLOSED_POSITION) + "°)");
-  
-  currentState = IDLE;
-  
-  // Publish status
-  mqttClient.publish("portones/gate/status", "{\"status\":\"closed\"}");
-  
-  Serial.println("[GATE] Gate is now CLOSED");
-  Serial.println("[GATE] Ready for next command\n");
-}
-
-// ==================== UPDATE GATE STATE (Non-blocking) ====================
-void updateGateState() {
-  if (currentState == OPEN) {
-    unsigned long currentTime = millis();
-    
-    // Check if it's time to close the gate
-    if (currentTime - gateOpenTime >= GATE_OPEN_DURATION) {
-      closeGate();
-    }
+    if (mqttClient.connect("ESP32_Gate_Multi", "pedropapas", "Pedro9090")) {
+      mqttClient.subscribe(MQTT_TOPIC);
+    } else { delay(5000); }
   }
 }

@@ -7,7 +7,7 @@ import { getAllGatesStatus } from './state/gates'
 
 // Initialize Fastify
 const fastify = Fastify({
-  logger: true
+  logger: false
 })
 
 // Register CORS plugin
@@ -63,6 +63,7 @@ fastify.post('/dev/test-mqtt', async (request, reply) => {
       action: 'OPEN',
       source: 'backend',
       timestamp: new Date().toISOString()
+      
     };
 
     client.publish('portones/gate/command', JSON.stringify(payload), { qos: 1 });

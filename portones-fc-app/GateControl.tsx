@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Button, YStack, Text, Spinner, Circle, XStack, Grid, Card } from 'tamagui'
+import { Button, YStack, Text, Spinner, Circle, XStack, Card } from 'tamagui'
 import { Check, Lock, Unlock, LogOut, RefreshCw } from '@tamagui/lucide-icons'
 import { useAuth } from './AuthContext'
 
@@ -114,6 +114,7 @@ const GateCard: React.FC<GateCardProps> = ({
       setTimeout(() => setOptimisticState('idle'), 3000)
     },
     onError: () => setOptimisticState('idle')
+
   })
 
   const closeMutation = useMutation({
@@ -152,7 +153,8 @@ const GateCard: React.FC<GateCardProps> = ({
         return 'Desconocido'
     }
   }
-
+    
+  
   return (
     <Card
       elevate
@@ -223,8 +225,9 @@ export const GateControl: React.FC<GateControlProps> = ({
   const { data: gatesStatus, refetch: refetchGates, isLoading } = useQuery({
     queryKey: ['gatesStatus', authToken],
     queryFn: () => fetchGatesStatus(apiUrl, authToken),
-    refetchInterval: 5000 // Refetch every 5 seconds
+    refetchInterval: 1000 // Poll cada 1s para menor latencia de estado
   })
+  console.log('gatesStatus desde backend:', gatesStatus)
 
   return (
     <YStack flex={1} backgroundColor='$background'>
@@ -298,26 +301,30 @@ export const GateControl: React.FC<GateControlProps> = ({
               <Spinner size='large' color='$blue10' />
             </YStack>
           ) : (
-            <Grid
-              columns={2}
-              space='$3'
-              padding='$2'
-              flex={1}
-              marginBottom='$4'
+            <XStack 
+              flexWrap="wrap" 
+              flexDirection="row" 
+              space="$3" 
+              padding="$2"
             >
               {gatesStatus &&
                 Object.entries(gatesStatus).map(([gateId, status]) => (
-                  <GateCard
-                    key={gateId}
-                    gateId={parseInt(gateId)}
-                    status={status}
-                    apiUrl={apiUrl}
-                    authToken={authToken}
-                    isRevoked={isRevoked}
-                    onSuccess={() => refetchGates()}
-                  />
+                  <YStack 
+                    key={gateId} 
+                    width="47%" // Ajustado para que quepan dos con el espacio ($3)
+                    marginBottom="$3"
+                  >
+                    <GateCard
+                      gateId={parseInt(gateId)}
+                      status={status}
+                      apiUrl={apiUrl}
+                      authToken={authToken}
+                      isRevoked={isRevoked}
+                      onSuccess={() => refetchGates()}
+                    />
+                  </YStack>
                 ))}
-            </Grid>
+            </XStack>
           )}
         </YStack>
       )}
