@@ -1,12 +1,6 @@
 {
-  "builds": [
-    {
-      "src": "portones-fc-app/package.json",
-      "use": "@vercel/static-build",
-      "config": { "distDir": "web-build" }
-    }
-  ],
-  "routes": [
-    { "src": "/(.*)", "dest": "/index.html" }
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
