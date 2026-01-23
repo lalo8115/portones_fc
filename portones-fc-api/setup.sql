@@ -14,6 +14,9 @@
 -- ==========================================
 -- 1. CREATE PROFILES TABLE
 -- ==========================================
+-- Extensiones necesarias
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'revoked')),
@@ -44,11 +47,77 @@ CREATE TABLE IF NOT EXISTS access_logs (
 COMMENT ON TABLE access_logs IS 'Audit log for gate access attempts';
 COMMENT ON COLUMN access_logs.action IS 'OPEN_GATE or CLOSE_GATE';
 COMMENT ON COLUMN access_logs.status IS 'SUCCESS, DENIED_REVOKED, or DENIED_NO_ACCESS';
+COMMENT ON COLUMN access_logs.gate_id IS 'ID del portón asociado (1..4)';
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_access_logs_user_id ON access_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_logs_timestamp ON access_logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+
+-- ==========================================
+-- CREATE GATES TABLE (Portones)
+-- ==========================================
+-- Tabla de portones para controlar y referenciar los IDs usados en firmware y app
+-- IDs deben coincidir con 1..4 según el código (ver firmware y app)
+CREATE TABLE IF NOT EXISTS gates (
+  id SMALLINT PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
+  name TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Comentarios
+COMMENT ON TABLE gates IS 'Listado de portones controlables (IDs 1..4)';
+COMMENT ON COLUMN gates.id IS 'ID del portón. Debe coincidir con firmware/app (1..4)';
+COMMENT ON COLUMN gates.enabled IS 'Habilita/Deshabilita el portón para uso';
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_gates_enabled ON gates(enabled);
+
+-- RLS para gates
+ALTER TABLE gates ENABLE ROW LEVEL SECURITY;
+
+-- Hacer idempotentes las políticas de gates
+DROP POLICY IF EXISTS "Authenticated users can view gates" ON gates;
+DROP POLICY IF EXISTS "Admins can manage gates" ON gates;
+DROP POLICY IF EXISTS "Service role full access gates" ON gates;
+
+-- Usuarios autenticados pueden consultar la lista de portones
+CREATE POLICY "Authenticated users can view gates"
+  ON gates FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
+-- Admins pueden administrar portones
+CREATE POLICY "Admins can manage gates"
+  ON gates FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- service_role (backend) acceso total
+CREATE POLICY "Service role full access gates"
+  ON gates FOR ALL
+  USING (auth.role() = 'service_role');
+
+-- Seed/Upsert de portones (IDs 1..4)
+INSERT INTO gates (id, name, enabled)
+VALUES
+  (1, 'Portón 1', TRUE),
+  (2, 'Portón 2', TRUE),
+  (3, 'Portón 3', TRUE),
+  (4, 'Portón 4', TRUE)
+ON CONFLICT (id) DO UPDATE
+SET name = EXCLUDED.name,
+    enabled = EXCLUDED.enabled,
+    updated_at = NOW();
 
 -- ==========================================
 -- 3. ENABLE ROW LEVEL SECURITY (RLS)
@@ -59,6 +128,13 @@ ALTER TABLE access_logs ENABLE ROW LEVEL SECURITY;
 -- ==========================================
 -- 4. CREATE RLS POLICIES FOR PROFILES
 -- ==========================================
+
+-- Idempotencia de políticas en profiles
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
+DROP POLICY IF EXISTS "Admins can update any profile" ON profiles;
+DROP POLICY IF EXISTS "Service role full access profiles" ON profiles;
 
 -- Users can view their own profile
 CREATE POLICY "Users can view own profile"
@@ -98,6 +174,12 @@ CREATE POLICY "Service role full access profiles"
 -- 5. CREATE RLS POLICIES FOR ACCESS_LOGS
 -- ==========================================
 
+-- Idempotencia de políticas en access_logs
+DROP POLICY IF EXISTS "Users can view own logs" ON access_logs;
+DROP POLICY IF EXISTS "Admins can view all logs" ON access_logs;
+DROP POLICY IF EXISTS "Service role can insert logs" ON access_logs;
+DROP POLICY IF EXISTS "Service role full access logs" ON access_logs;
+
 -- Users can view their own logs
 CREATE POLICY "Users can view own logs"
   ON access_logs FOR SELECT
@@ -123,6 +205,15 @@ CREATE POLICY "Service role full access logs"
   USING (auth.role() = 'service_role');
 
 -- ==========================================
+-- LINK ACCESS_LOGS TO GATES
+-- ==========================================
+-- Agrega columna gate_id y su índice (si no existen)
+ALTER TABLE access_logs
+  ADD COLUMN IF NOT EXISTS gate_id SMALLINT REFERENCES gates(id);
+
+CREATE INDEX IF NOT EXISTS idx_access_logs_gate_id ON access_logs(gate_id);
+
+-- ==========================================
 -- 6. CREATE AUTO-CREATE PROFILE TRIGGER
 -- ==========================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -143,6 +234,30 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 COMMENT ON FUNCTION public.handle_new_user IS 'Automatically create a profile when a new user signs up';
+
+-- ==========================================
+-- 6b. UPDATED_AT TRIGGER FUNCTION & TRIGGERS
+-- ==========================================
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Drop triggers if exist
+DROP TRIGGER IF EXISTS profiles_set_updated_at ON public.profiles;
+DROP TRIGGER IF EXISTS gates_set_updated_at ON public.gates;
+
+-- Create triggers
+CREATE TRIGGER profiles_set_updated_at
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER gates_set_updated_at
+  BEFORE UPDATE ON public.gates
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- ==========================================
 -- 7. SEED DATA (OPTIONAL)

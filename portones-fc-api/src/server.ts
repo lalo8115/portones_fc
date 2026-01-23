@@ -28,7 +28,29 @@ fastify.get('/gates', async (request, reply) => {
       .eq('id', user.id)
       .single()
 
-    if (profileError || !profile) {
+    // If profile doesn't exist, create it with 'user' role
+    if (profileError && profileError.code === 'PGRST116') {
+      // PGRST116 = no rows returned
+      fastify.log.warn(`Profile for user ${user.id} not found, creating one`)
+      const { error: createError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: user.id,
+          role: 'user',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+
+      if (createError) {
+        fastify.log.error({ error: createError }, 'Failed to create profile')
+        reply.status(403).send({
+          error: 'Forbidden',
+          message: 'Unable to verify user access'
+        })
+        return
+      }
+    } else if (profileError || !profile) {
+      fastify.log.error({ error: profileError }, 'Error fetching profile')
       reply.status(403).send({
         error: 'Forbidden',
         message: 'User profile not found'
@@ -36,7 +58,7 @@ fastify.get('/gates', async (request, reply) => {
       return
     }
 
-    if (profile.role === 'revoked') {
+    if (profile?.role === 'revoked') {
       reply.status(403).send({
         error: 'Forbidden',
         message: 'Access has been revoked'
@@ -145,6 +167,69 @@ fastify.get('/health', async (request, reply) => {
   }
 })
 
+// Profile route - returns authenticated user's profile
+fastify.get('/profile', async (request, reply) => {
+  try {
+    const user = (request as any).user
+
+    // Get user profile
+    let { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+
+    // If profile doesn't exist, create it with 'user' role
+    if (profileError && profileError.code === 'PGRST116') {
+      // PGRST116 = no rows returned
+      fastify.log.info(`Profile for user ${user.id} not found, creating one`)
+      const { data: newProfile, error: createError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: user.id,
+          role: 'user',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (createError) {
+        fastify.log.error({ error: createError }, 'Failed to create profile')
+        reply.status(500).send({
+          error: 'Server Error',
+          message: 'Failed to create user profile'
+        })
+        return
+      }
+
+      profile = newProfile
+    } else if (profileError || !profile) {
+      fastify.log.error({ error: profileError }, 'Profile not found')
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    reply.send({
+      id: profile.id,
+      email: user.email,
+      role: profile.role,
+      apartment_unit: profile.apartment_unit,
+      created_at: profile.created_at,
+      updated_at: profile.updated_at
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /profile')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to fetch profile'
+    })
+  }
+})
+
 // Gate control route
 fastify.post('/gate/open', async (request, reply) => {
   try {
@@ -186,12 +271,54 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_REVOKED',
+        gate_id: gateId,
         ip_address: request.ip
       })
 
       reply.status(403).send({
         error: 'Forbidden',
         message: 'Access has been revoked. Contact administration.'
+      })
+      return
+    }
+
+    // 3. Validate gate exists and is enabled
+    const { data: gate, error: gateError } = await supabaseAdmin
+      .from('gates')
+      .select('id, enabled')
+      .eq('id', gateId)
+      .single()
+
+    if (gateError || !gate) {
+      fastify.log.warn(`Gate ${gateId} not found`)
+      await supabaseAdmin.from('access_logs').insert({
+        user_id: user.id,
+        action: 'OPEN_GATE',
+        status: 'DENIED_NO_ACCESS',
+        gate_id: gateId,
+        ip_address: request.ip
+      })
+
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Gate not found'
+      })
+      return
+    }
+
+    if (!gate.enabled) {
+      fastify.log.warn(`Gate ${gateId} is disabled`)
+      await supabaseAdmin.from('access_logs').insert({
+        user_id: user.id,
+        action: 'OPEN_GATE',
+        status: 'DENIED_NO_ACCESS',
+        gate_id: gateId,
+        ip_address: request.ip
+      })
+
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Gate is disabled'
       })
       return
     }
@@ -230,6 +357,7 @@ fastify.post('/gate/open', async (request, reply) => {
       user_id: user.id,
       action: 'OPEN_GATE',
       status: 'SUCCESS',
+      gate_id: gateId,
       ip_address: request.ip
     })
 
@@ -297,12 +425,54 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_REVOKED',
+        gate_id: gateId,
         ip_address: request.ip
       })
 
       reply.status(403).send({
         error: 'Forbidden',
         message: 'Access has been revoked. Contact administration.'
+      })
+      return
+    }
+
+    // 3. Validate gate exists and is enabled
+    const { data: gate, error: gateError } = await supabaseAdmin
+      .from('gates')
+      .select('id, enabled')
+      .eq('id', gateId)
+      .single()
+
+    if (gateError || !gate) {
+      fastify.log.warn(`Gate ${gateId} not found`)
+      await supabaseAdmin.from('access_logs').insert({
+        user_id: user.id,
+        action: 'CLOSE_GATE',
+        status: 'DENIED_NO_ACCESS',
+        gate_id: gateId,
+        ip_address: request.ip
+      })
+
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Gate not found'
+      })
+      return
+    }
+
+    if (!gate.enabled) {
+      fastify.log.warn(`Gate ${gateId} is disabled`)
+      await supabaseAdmin.from('access_logs').insert({
+        user_id: user.id,
+        action: 'CLOSE_GATE',
+        status: 'DENIED_NO_ACCESS',
+        gate_id: gateId,
+        ip_address: request.ip
+      })
+
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Gate is disabled'
       })
       return
     }
@@ -341,6 +511,7 @@ fastify.post('/gate/close', async (request, reply) => {
       user_id: user.id,
       action: 'CLOSE_GATE',
       status: 'SUCCESS',
+      gate_id: gateId,
       ip_address: request.ip
     })
 

@@ -42,19 +42,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState(true)
   const [supabase] = useState(() => createClient(supabaseUrl, supabaseAnonKey))
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
 
-      if (error) {
-        console.error('Error fetching profile:', error)
+  const fetchProfile = async (userId: string, token: string) => {
+    try {
+      const response = await fetch(`${apiUrl}/profile`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        console.error('Error fetching profile: HTTP', response.status)
         return null
       }
 
+      const data = await response.json()
       setProfile(data)
       return data
     } catch (error) {
@@ -64,8 +69,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }
 
   const refreshProfile = async () => {
-    if (session?.user?.id) {
-      await fetchProfile(session.user.id)
+    if (session?.user?.id && session?.access_token) {
+      await fetchProfile(session.user.id, session.access_token)
     }
   }
 
@@ -73,8 +78,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session?.user?.id) {
-        fetchProfile(session.user.id).then(() => setLoading(false))
+      if (session?.user?.id && session?.access_token) {
+        fetchProfile(session.user.id, session.access_token).then(() => setLoading(false))
       } else {
         setLoading(false)
       }
@@ -85,8 +90,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       data: { subscription }
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session?.user?.id) {
-        fetchProfile(session.user.id)
+      if (session?.user?.id && session?.access_token) {
+        fetchProfile(session.user.id, session.access_token)
       } else {
         setProfile(null)
       }

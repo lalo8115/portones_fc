@@ -36,6 +36,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length);
 void processCommand(int gateId, const char* action);
 void updateGates();
 void publishStatus(int gateId, const char* status);
+String getTimestamp();
+
+// Función helper para timestamps
+String getTimestamp() {
+  unsigned long ms = millis();
+  unsigned long secs = ms / 1000;
+  unsigned long mins = secs / 60;
+  unsigned long hours = mins / 60;
+  ms = ms % 1000;
+  secs = secs % 60;
+  mins = mins % 60;
+  
+  char timestamp[16];
+  snprintf(timestamp, sizeof(timestamp), "%02lu:%02lu:%02lu.%03lu", hours, mins, secs, ms);
+  return String(timestamp);
+}
 
 void setup() {
   Serial.begin(115200);
@@ -44,7 +60,7 @@ void setup() {
   for(int i = 0; i < NUM_GATES; i++) {
     gateServos[i].attach(SERVO_PINS[i]);
     gateServos[i].write(POS_CLOSED);
-    Serial.printf("[SERVO %d] Inicializado en pin %d\n", i + 1, SERVO_PINS[i]);
+    Serial.printf("[%s] [SERVO %d] Inicializado en pin %d\n", getTimestamp().c_str(), i + 1, SERVO_PINS[i]);
   }
 
   setupWiFi();
@@ -54,7 +70,10 @@ void setup() {
 }
 
 void loop() {
-  if (!mqttClient.connected()) reconnectMQTT();
+  if (!mqttClient.connected()) {
+    Serial.printf("[%s] [MQTT] ✗ Desconectado del broker\n", getTimestamp().c_str());
+    reconnectMQTT();
+  }
   mqttClient.loop();
   updateGates();
   delay(10);
@@ -78,7 +97,7 @@ void processCommand(int gateId, const char* action) {
   if (idx < 0 || idx >= NUM_GATES) return;
 
   if (strcmp(action, "OPEN") == 0 && states[idx] == IDLE) {
-    Serial.printf("[GATE %d] Abriendo...\n", gateId);
+    Serial.printf("[%s] [GATE %d] Abriendo...\n", getTimestamp().c_str(), gateId);
     gateServos[idx].write(POS_OPEN);
     states[idx] = OPEN;
     openTimers[idx] = millis();
@@ -90,7 +109,7 @@ void updateGates() {
   for (int i = 0; i < NUM_GATES; i++) {
     if (states[i] == OPEN && (millis() - openTimers[i] >= GATE_OPEN_DURATION)) {
       int gateId = i + 1;
-      Serial.printf("[GATE %d] Cerrando automáticamente...\n", gateId);
+      Serial.printf("[%s] [GATE %d] Cerrando automáticamente...\n", getTimestamp().c_str(), gateId);
       gateServos[i].write(POS_CLOSED);
       states[i] = IDLE;
       publishStatus(gateId, "CLOSED");
@@ -107,13 +126,19 @@ void publishStatus(int gateId, const char* status) {
 void setupWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\nWiFi Conectado");
+  Serial.printf("\n[%s] [WiFi] Conectado\n", getTimestamp().c_str());
 }
 
 void reconnectMQTT() {
   while (!mqttClient.connected()) {
+    Serial.printf("[%s] [MQTT] Intentando conectar...\n", getTimestamp().c_str());
     if (mqttClient.connect("ESP32_Gate_Multi", "pedropapas", "Pedro9090")) {
+      Serial.printf("[%s] [MQTT] ✓ Conectado al broker\n", getTimestamp().c_str());
       mqttClient.subscribe(MQTT_TOPIC);
-    } else { delay(5000); }
+      Serial.printf("[%s] [MQTT] Suscrito al topic: %s\n", getTimestamp().c_str(), MQTT_TOPIC);
+    } else {
+      Serial.printf("[%s] [MQTT] ✗ Error de conexión (código: %d)\n", getTimestamp().c_str(), mqttClient.state());
+      delay(5000);
+    }
   }
 }

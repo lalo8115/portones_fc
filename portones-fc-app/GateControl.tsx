@@ -101,6 +101,7 @@ const GateCard: React.FC<GateCardProps> = ({
   isRevoked,
   onSuccess
 }) => {
+  const effectiveStatus = status === 'UNKNOWN' ? 'CLOSED' : status
   const [optimisticState, setOptimisticState] = useState<
     'idle' | 'loading' | 'success'
   >('idle')
@@ -129,7 +130,7 @@ const GateCard: React.FC<GateCardProps> = ({
   })
 
   const getStatusColor = () => {
-    switch (status) {
+    switch (effectiveStatus) {
       case 'OPEN':
         return '$green10'
       case 'CLOSED':
@@ -140,7 +141,7 @@ const GateCard: React.FC<GateCardProps> = ({
   }
 
   const getStatusText = () => {
-    switch (status) {
+    switch (effectiveStatus) {
       case 'OPEN':
         return 'Abierto'
       case 'CLOSED':
@@ -150,7 +151,7 @@ const GateCard: React.FC<GateCardProps> = ({
       case 'CLOSING':
         return 'Cerrando...'
       default:
-        return 'Desconocido'
+        return 'Cerrado'
     }
   }
     
@@ -171,7 +172,7 @@ const GateCard: React.FC<GateCardProps> = ({
             Portón {gateId}
           </Text>
           <Circle size={60} backgroundColor={getStatusColor()} elevate>
-            {status === 'OPEN' ? (
+            {effectiveStatus === 'OPEN' ? (
               <Unlock size={32} color='white' />
             ) : (
               <Lock size={32} color='white' />
@@ -225,8 +226,30 @@ export const GateControl: React.FC<GateControlProps> = ({
   const { data: gatesStatus, refetch: refetchGates, isLoading } = useQuery({
     queryKey: ['gatesStatus', authToken],
     queryFn: () => fetchGatesStatus(apiUrl, authToken),
-    refetchInterval: 1000 // Poll cada 1s para menor latencia de estado
+    refetchInterval: 1000,
+    initialData: { 1: 'CLOSED', 2: 'CLOSED', 3: 'CLOSED', 4: 'CLOSED' }
   })
+
+  // Create mutations for each gate
+  const createGateMutations = (gateId: number) => {
+    const openMutation = useMutation({
+      mutationFn: () => openGate(apiUrl, authToken, gateId),
+      onSuccess: () => refetchGates()
+    })
+
+    const closeMutation = useMutation({
+      mutationFn: () => closeGate(apiUrl, authToken, gateId),
+      onSuccess: () => refetchGates()
+    })
+
+    return { openMutation, closeMutation }
+  }
+
+  const gate1 = createGateMutations(1)
+  const gate2 = createGateMutations(2)
+  const gate3 = createGateMutations(3)
+  const gate4 = createGateMutations(4)
+
   console.log('gatesStatus desde backend:', gatesStatus)
 
   return (
@@ -301,30 +324,201 @@ export const GateControl: React.FC<GateControlProps> = ({
               <Spinner size='large' color='$blue10' />
             </YStack>
           ) : (
-            <XStack 
-              flexWrap="wrap" 
-              flexDirection="row" 
-              space="$3" 
-              padding="$2"
-            >
-              {gatesStatus &&
-                Object.entries(gatesStatus).map(([gateId, status]) => (
-                  <YStack 
-                    key={gateId} 
-                    width="47%" // Ajustado para que quepan dos con el espacio ($3)
-                    marginBottom="$3"
-                  >
-                    <GateCard
-                      gateId={parseInt(gateId)}
-                      status={status}
-                      apiUrl={apiUrl}
-                      authToken={authToken}
-                      isRevoked={isRevoked}
-                      onSuccess={() => refetchGates()}
-                    />
+            <YStack space='$6'>
+              {/* ENTRADA */}
+              <YStack space='$3'>
+                <Text fontSize='$5' fontWeight='bold' color='$color'>
+                  Entrada
+                </Text>
+                <XStack space='$2' width='100%'>
+                  <YStack flex={1} minWidth='45%'>
+                    <Card
+                      elevate
+                      size='$4'
+                      bordered
+                      padding='$4'
+                      space='$3'
+                      minHeight={200}
+                    >
+                      <YStack space='$3' flex={1} justifyContent='space-between'>
+                        <YStack space='$2' alignItems='center'>
+                          <Text fontSize='$6' fontWeight='bold'>
+                            Residente
+                          </Text>
+                          <Circle size={60} backgroundColor={gatesStatus?.[1] === 'OPEN' ? '$green10' : '$blue10'} elevate>
+                            {gatesStatus?.[1] === 'OPEN' ? (
+                              <Unlock size={32} color='white' />
+                            ) : (
+                              <Lock size={32} color='white' />
+                            )}
+                          </Circle>
+                          <Text fontSize='$4' color='$gray11'>
+                            {gatesStatus?.[1] === 'OPEN' ? 'Abierto' : 'Cerrado'}
+                          </Text>
+                        </YStack>
+                        <Button
+                          width='100%'
+                          size='$4'
+                          theme='green'
+                          disabled={isRevoked || gate1.openMutation.isPending}
+                          onPress={() => gate1.openMutation.mutate()}
+                        >
+                          {gate1.openMutation.isPending ? (
+                            <Spinner size='small' color='white' />
+                          ) : (
+                            'Abrir'
+                          )}
+                        </Button>
+                      </YStack>
+                    </Card>
                   </YStack>
-                ))}
-            </XStack>
+
+                  <YStack flex={1} minWidth='45%'>
+                    <Card
+                      elevate
+                      size='$4'
+                      bordered
+                      padding='$4'
+                      space='$3'
+                      minHeight={200}
+                    >
+                      <YStack space='$3' flex={1} justifyContent='space-between'>
+                        <YStack space='$2' alignItems='center'>
+                          <Text fontSize='$6' fontWeight='bold'>
+                            Visitante
+                          </Text>
+                          <Circle size={60} backgroundColor={gatesStatus?.[2] === 'OPEN' ? '$green10' : '$blue10'} elevate>
+                            {gatesStatus?.[2] === 'OPEN' ? (
+                              <Unlock size={32} color='white' />
+                            ) : (
+                              <Lock size={32} color='white' />
+                            )}
+                          </Circle>
+                          <Text fontSize='$4' color='$gray11'>
+                            {gatesStatus?.[2] === 'OPEN' ? 'Abierto' : 'Cerrado'}
+                          </Text>
+                        </YStack>
+                        <Button
+                          width='100%'
+                          size='$4'
+                          theme='green'
+                          disabled={isRevoked || gate2.openMutation.isPending}
+                          onPress={() => gate2.openMutation.mutate()}
+                        >
+                          {gate2.openMutation.isPending ? (
+                            <Spinner size='small' color='white' />
+                          ) : (
+                            'Abrir'
+                          )}
+                        </Button>
+                      </YStack>
+                    </Card>
+                  </YStack>
+                </XStack>
+              </YStack>
+
+              {/* SALIDA */}
+              <YStack space='$3'>
+                <Text fontSize='$5' fontWeight='bold' color='$color'>
+                  Salida
+                </Text>
+                <XStack space='$2' width='100%'>
+                  <YStack flex={1} minWidth='45%'>
+                    <Card
+                      elevate
+                      size='$4'
+                      bordered
+                      padding='$4'
+                      space='$3'
+                      minHeight={200}
+                    >
+                      <YStack space='$3' flex={1} justifyContent='space-between'>
+                        <YStack space='$2' alignItems='center'>
+                          <Text fontSize='$6' fontWeight='bold'>
+                            Residente
+                          </Text>
+                          <Circle size={60} backgroundColor={gatesStatus?.[3] === 'OPEN' ? '$green10' : '$blue10'} elevate>
+                            {gatesStatus?.[3] === 'OPEN' ? (
+                              <Unlock size={32} color='white' />
+                            ) : (
+                              <Lock size={32} color='white' />
+                            )}
+                          </Circle>
+                          <Text fontSize='$4' color='$gray11'>
+                            {gatesStatus?.[3] === 'OPEN' ? 'Abierto' : 'Cerrado'}
+                          </Text>
+                        </YStack>
+                        <Button
+                          width='100%'
+                          size='$4'
+                          theme='green'
+                          disabled={isRevoked || gate3.openMutation.isPending}
+                          onPress={() => gate3.openMutation.mutate()}
+                        >
+                          {gate3.openMutation.isPending ? (
+                            <Spinner size='small' color='white' />
+                          ) : (
+                            'Abrir'
+                          )}
+                        </Button>
+                      </YStack>
+                    </Card>
+                  </YStack>
+
+                  <YStack flex={1} minWidth='45%'>
+                    <Card
+                      elevate
+                      size='$4'
+                      bordered
+                      padding='$4'
+                      space='$3'
+                      minHeight={200}
+                    >
+                      <YStack space='$3' flex={1} justifyContent='space-between'>
+                        <YStack space='$2' alignItems='center'>
+                          <Text fontSize='$6' fontWeight='bold'>
+                            Visitante
+                          </Text>
+                          <Circle size={60} backgroundColor={gatesStatus?.[4] === 'OPEN' ? '$green10' : '$blue10'} elevate>
+                            {gatesStatus?.[4] === 'OPEN' ? (
+                              <Unlock size={32} color='white' />
+                            ) : (
+                              <Lock size={32} color='white' />
+                            )}
+                          </Circle>
+                          <Text fontSize='$4' color='$gray11'>
+                            {gatesStatus?.[4] === 'OPEN' ? 'Abierto' : 'Cerrado'}
+                          </Text>
+                        </YStack>
+                        <Button
+                          width='100%'
+                          size='$4'
+                          theme='green'
+                          disabled={isRevoked || gate4.openMutation.isPending}
+                          onPress={() => gate4.openMutation.mutate()}
+                        >
+                          {gate4.openMutation.isPending ? (
+                            <Spinner size='small' color='white' />
+                          ) : (
+                            'Abrir'
+                          )}
+                        </Button>
+                      </YStack>
+                    </Card>
+                  </YStack>
+                </XStack>
+              </YStack>
+              <Button
+                width='100%'
+                size='$4'
+                theme='blue'
+                onPress={() => {
+                  // TODO: Implementar generación de código QR
+                }}
+              >
+                Generar Código QR
+              </Button>
+            </YStack>
           )}
         </YStack>
       )}
