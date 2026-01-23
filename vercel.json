@@ -1,6 +1,6 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "portones-fc-app/.expo/web",
+  "outputDirectory": ".expo/web",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
