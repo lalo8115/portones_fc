@@ -1,12 +1,7 @@
 {
-  "builds": [
-    {
-      "src": "portones-fc-app/package.json",
-      "use": "@vercel/static-build",
-      "config": { "distDir": "web-build" }
-    }
-  ],
-  "routes": [
-    { "src": "/(.*)", "dest": "/index.html" }
+  "buildCommand": "npm run build",
+  "outputDirectory": ".expo/web",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
