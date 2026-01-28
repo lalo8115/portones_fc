@@ -7,9 +7,7 @@ import { getAllGatesStatus } from './state/gates'
 
 // Initialize Fastify
 const fastify = Fastify({
-  logger: {
-    level: 'error'
-  }
+  logger: false
 })
 
 // Register CORS plugin
@@ -19,31 +17,107 @@ await fastify.register(cors, {
   credentials: true
 })
 
-// Initialize Supabase clients BEFORE hooks
+fastify.get('/gates', async (request, reply) => {
+  try {
+    const user = (request as any).user
+
+    // Get user profile to verify access
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    // If profile doesn't exist, create it with 'user' role
+    if (profileError && profileError.code === 'PGRST116') {
+      // PGRST116 = no rows returned
+      fastify.log.warn(`Profile for user ${user.id} not found, creating one`)
+      const { error: createError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          id: user.id,
+          role: 'user',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+
+      if (createError) {
+        fastify.log.error({ error: createError }, 'Failed to create profile')
+        reply.status(403).send({
+          error: 'Forbidden',
+          message: 'Unable to verify user access'
+        })
+        return
+      }
+    } else if (profileError || !profile) {
+      fastify.log.error({ error: profileError }, 'Error fetching profile')
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    if (profile?.role === 'revoked') {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Access has been revoked'
+      })
+      return
+    }
+
+    return getAllGatesStatus()
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /gates')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to get gates status'
+    })
+  }
+})
+
+// Ruta de prueba MQTT
+fastify.post('/dev/test-mqtt', async (request, reply) => {
+  try {
+    const client = await connectMQTT();
+
+    const payload = {
+      action: 'OPEN',
+      source: 'backend',
+      timestamp: new Date().toISOString()
+      
+    };
+
+    client.publish('portones/gate/command', JSON.stringify(payload), { qos: 1 });
+
+    return { ok: true, payload };
+  } catch (err) {
+    console.error(err);
+    reply.status(500).send({ ok: false, error: err });
+  }
+});
+
+// Initialize Supabase clients
 // Anon client for JWT validation
 const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_ANON_KEY || ''
+  config.SUPABASE_URL,
+  config.SUPABASE_ANON_KEY
 )
 
 // Service role client for database operations (bypasses RLS)
 const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  config.SUPABASE_URL,
+  config.SUPABASE_SERVICE_ROLE_KEY
 )
 
-// Authentication middleware - BEFORE route handlers
+// MQTT client configuration
+
+
+
+// Authentication middleware
 fastify.addHook('preHandler', async (request, reply) => {
-  // Skip auth for health check and public endpoints
-  const publicRoutes = [
-    '/health',
-    '/dev/test-mqtt',
-    '/config/openpay-public-key',
-    '/config/openpay-device-session',
-    '/payment/tokenize'
-  ]
-  
-  if (publicRoutes.includes(request.url)) {
+  // Skip auth for health check
+  if (request.url === '/health' || request.url === '/dev/test-mqtt')  {
     return
   }
 
@@ -84,335 +158,12 @@ fastify.addHook('preHandler', async (request, reply) => {
   }
 })
 
-// NOW define routes after middleware is registered
-fastify.get('/gates', async (request, reply) => {
-  try {
-    const user = (request as any).user
-
-    // Get user profile to verify access and colonia
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('role, colonia_id')
-      .eq('id', user.id)
-      .single()
-
-    // If profile doesn't exist, create it with 'user' role
-    if (profileError && profileError.code === 'PGRST116') {
-      // PGRST116 = no rows returned
-      fastify.log.warn(`Profile for user ${user.id} not found, creating one`)
-      const { error: createError } = await supabaseAdmin
-        .from('profiles')
-        .insert({
-          id: user.id,
-          role: 'user',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-
-      if (createError) {
-        fastify.log.error({ error: createError }, 'Failed to create profile')
-        reply.status(403).send({
-          error: 'Forbidden',
-          message: 'Unable to verify user access'
-        })
-        return
-      }
-    } else if (profileError || !profile) {
-      fastify.log.error({ error: profileError }, 'Error fetching profile')
-      reply.status(403).send({
-        error: 'Forbidden',
-        message: 'User profile not found'
-      })
-      return
-    }
-
-    const userProfile = profile ?? { role: 'user', colonia_id: null }
-
-    if (userProfile.role === 'revoked') {
-      reply.status(403).send({
-        error: 'Forbidden',
-        message: 'Access has been revoked'
-      })
-      return
-    }
-
-    // Get all gates status with colonia info
-    const allGatesStatus = getAllGatesStatus()
-
-    // Get gates info from database with colonia
-    const { data: gatesDb, error: gatesError } = await supabaseAdmin
-      .from('gates')
-      .select('id, name, enabled, type, colonia_id, colonias(id, nombre)')
-
-    if (gatesError) {
-      fastify.log.error({ error: gatesError }, 'Error fetching gates')
-    }
-
-
-    // Filter gates by user's colonia if they have one
-    const filteredGates = Object.entries(allGatesStatus)
-      .map(([id, status]) => {
-        const numericId = Number(id)
-        const dbGate = gatesDb?.find((g: any) => g.id === numericId)
-
-        // Only include gate if:
-        // 1. User has no colonia (legacy/migration support)
-        // 2. Gate has no colonia (public gates)
-        // 3. User's colonia matches gate's colonia
-        const hasAccess =
-          !userProfile.colonia_id ||
-          !dbGate?.colonia_id ||
-          userProfile.colonia_id === dbGate?.colonia_id
-
-        return {
-          id: numericId,
-          status,
-          name: dbGate?.name || `Portón ${id}`,
-          enabled: dbGate?.enabled ?? true,
-          type: dbGate?.type || 'ENTRADA',
-          colonia_id: dbGate?.colonia_id || null,
-          colonia: dbGate?.colonias || null,
-          hasAccess
-        }
-      })
-      .filter((gate: any) => gate.hasAccess)
-
-    return { gates: filteredGates }
-  } catch (error) {
-    fastify.log.error({ error }, 'Error in /gates')
-    reply.status(500).send({
-      error: 'Server Error',
-      message: 'Failed to get gates status'
-    })
-  }
-})
-
-// Ruta de prueba MQTT
-fastify.post('/dev/test-mqtt', async (request, reply) => {
-  try {
-    const client = await connectMQTT();
-
-    const payload = {
-      action: 'OPEN',
-      source: 'backend',
-      timestamp: new Date().toISOString()
-      
-    };
-
-    client.publish('portones/gate/command', JSON.stringify(payload), { qos: 1 });
-
-    return { ok: true, payload };
-  } catch (err) {
-    console.error(err);
-    reply.status(500).send({ ok: false, error: err });
-  }
-});
-
-// Openpay API configuration
-const openpayApiUrl = config.OPENPAY_PRODUCTION
-  ? 'https://api.openpay.mx/v1'
-  : 'https://sandbox-api.openpay.mx/v1'
-
-const maintenanceAmount = config.MAINTENANCE_MONTHLY_AMOUNT
-const maintenanceCurrency = 'MXN'
-
-// Helper to make authenticated requests to Openpay API
-const openpayRequest = async (
-  method: string,
-  endpoint: string,
-  body?: any
-): Promise<any> => {
-  const url = `${openpayApiUrl}/${config.OPENPAY_MERCHANT_ID}${endpoint}`
-  const auth = Buffer.from(`${config.OPENPAY_PRIVATE_KEY}:`).toString('base64')
-
-  const response = await fetch(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Basic ${auth}`
-    },
-    body: body ? JSON.stringify(body) : undefined
-  })
-
-  const data: any = await response.json()
-
-  if (!response.ok) {
-    const errorMsg = (data?.description as string) || (data?.message as string) || 'Openpay API error'
-    throw new Error(errorMsg)
-  }
-
-  return data
-}
-
 // Health check route
 fastify.get('/health', async (request, reply) => {
   return {
     status: 'ok',
     timestamp: new Date().toISOString(),
     mqtt: 'unknown'
-  }
-})
-
-// Config routes - no auth required
-fastify.get('/config/openpay-public-key', async (request, reply) => {
-  reply.send({
-    publicKey: config.OPENPAY_PUBLIC_KEY
-  })
-})
-
-fastify.get('/config/openpay-device-session', async (request, reply) => {
-  try {
-    // Generate a mock device session ID for development
-    // In production, this should be generated by Openpay JavaScript on the client
-    const deviceSessionId = 'dev_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
-    
-    reply.send({
-      deviceSessionId
-    })
-  } catch (error: any) {
-    fastify.log.error({ error }, 'Error generating device session')
-    reply.status(500).send({
-      error: 'Server Error',
-      message: error?.message || 'Error generating device session'
-    })
-  }
-})
-
-// Tokenize card endpoint - no auth required, called from client
-fastify.post('/payment/tokenize', async (request, reply) => {
-  try {
-    const {
-      card_number,
-      holder_name,
-      expiration_month,
-      expiration_year,
-      cvv2
-    } = request.body as {
-      card_number?: string
-      holder_name?: string
-      expiration_month?: number
-      expiration_year?: number
-      cvv2?: string
-    }
-
-    if (!card_number || !expiration_month || !expiration_year || !cvv2) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'Faltan datos de tarjeta'
-      })
-      return
-    }
-
-    // Create token via Openpay API
-    const token = await openpayRequest('POST', '/tokens', {
-      card_number,
-      holder_name: holder_name || 'Usuario',
-      expiration_month,
-      expiration_year,
-      cvv2
-    })
-
-    reply.send({
-      tokenId: token.id,
-      id: token.id
-    })
-  } catch (error: any) {
-    fastify.log.error({ error }, 'Error tokenizing card')
-    reply.status(400).send({
-      error: 'Tokenization Error',
-      message: error?.message || 'Error al tokenizar tarjeta'
-    })
-  }
-})
-
-// Payment route - maintenance fee (now accepts tokenId instead of card data)
-fastify.post('/payment/maintenance', async (request, reply) => {
-  try {
-    const user = (request as any).user
-
-    // Obtener colonia y monto de mantenimiento
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .select('colonia_id, colonias(id, nombre, maintenance_monthly_amount)')
-      .eq('id', user.id)
-      .single() as any
-
-    if (profileError) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'No se pudo obtener el perfil del usuario'
-      })
-      return
-    }
-
-    const coloniaData = (profile?.colonias as any) || {}
-    const coloniaAmount = coloniaData?.maintenance_monthly_amount as number | undefined
-    const amountToCharge =
-      typeof coloniaAmount === 'number' && !Number.isNaN(coloniaAmount)
-        ? coloniaAmount
-        : maintenanceAmount
-
-    if (!amountToCharge || amountToCharge <= 0) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'Monto de mantenimiento no configurado'
-      })
-      return
-    }
-
-    // Now expects tokenId and deviceSessionId (no card data)
-    const {
-      tokenId,
-      deviceSessionId,
-      cardholderName
-    } = request.body as {
-      tokenId?: string
-      deviceSessionId?: string
-      cardholderName?: string
-    }
-
-    if (!tokenId) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'Token de tarjeta requerido'
-      })
-      return
-    }
-
-    // Create charge via Openpay API using tokenId
-    const chargePayload = {
-      source_id: tokenId,
-      method: 'card',
-      amount: amountToCharge,
-      currency: maintenanceCurrency,
-      description: 'Pago de mantenimiento mensual',
-      device_session_id: deviceSessionId || undefined,
-      customer: {
-        name: cardholderName || user?.email || 'Usuario',
-        email: user?.email
-      }
-    }
-
-    const charge = await openpayRequest('POST', '/charges', chargePayload)
-
-    reply.send({
-      ok: true,
-      chargeId: charge.id,
-      status: charge.status,
-      amount: amountToCharge,
-      currency: maintenanceCurrency,
-      colonia_id: profile?.colonia_id || null,
-      colonia_nombre: coloniaData?.nombre || null
-    })
-  } catch (error: any) {
-    fastify.log.error({ error }, 'Error procesando pago de mantenimiento')
-
-    const message = error?.message || 'Error al procesar el pago'
-
-    reply.status(400).send({
-      error: 'Payment Error',
-      message
-    })
   }
 })
 
@@ -424,7 +175,7 @@ fastify.get('/profile', async (request, reply) => {
     // Get user profile
     let { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('*, colonias(id, nombre, maintenance_monthly_amount)')
+      .select('*')
       .eq('id', user.id)
       .single()
 
@@ -467,8 +218,6 @@ fastify.get('/profile', async (request, reply) => {
       email: user.email,
       role: profile.role,
       apartment_unit: profile.apartment_unit,
-      colonia_id: profile.colonia_id,
-      colonia: profile.colonias || null,
       created_at: profile.created_at,
       updated_at: profile.updated_at
     })
@@ -477,71 +226,6 @@ fastify.get('/profile', async (request, reply) => {
     reply.status(500).send({
       error: 'Server Error',
       message: 'Failed to fetch profile'
-    })
-  }
-})
-
-// Asigna colonia al perfil usando un código proporcionado
-fastify.post('/profile/colonia', async (request, reply) => {
-  try {
-    const user = (request as any).user
-    const { coloniaCode } = request.body as { coloniaCode?: string }
-
-    if (!coloniaCode || typeof coloniaCode !== 'string' || !coloniaCode.trim()) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'El código de colonia es requerido'
-      })
-      return
-    }
-
-    const trimmedCode = coloniaCode.trim()
-
-    const { data: colonia, error: coloniaError } = await supabaseAdmin
-      .from('colonias')
-      .select('id, nombre')
-      .eq('id', trimmedCode)
-      .single()
-
-    if (coloniaError || !colonia) {
-      reply.status(404).send({
-        error: 'Not Found',
-        message: 'Código de colonia inválido'
-      })
-      return
-    }
-
-    const { data: updatedProfile, error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update({ colonia_id: colonia.id, updated_at: new Date().toISOString() })
-      .eq('id', user.id)
-      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias(id, nombre)')
-      .single()
-
-    if (updateError || !updatedProfile) {
-      fastify.log.error({ error: updateError }, 'Error updating colonia_id')
-      reply.status(500).send({
-        error: 'Server Error',
-        message: 'No se pudo actualizar la colonia'
-      })
-      return
-    }
-
-    reply.send({
-      id: updatedProfile.id,
-      email: user.email,
-      role: updatedProfile.role,
-      apartment_unit: updatedProfile.apartment_unit,
-      colonia_id: updatedProfile.colonia_id,
-      colonia: updatedProfile.colonias || null,
-      created_at: updatedProfile.created_at,
-      updated_at: updatedProfile.updated_at
-    })
-  } catch (error) {
-    fastify.log.error({ error }, 'Error in /profile/colonia')
-    reply.status(500).send({
-      error: 'Server Error',
-      message: 'Failed to update colonia'
     })
   }
 })
@@ -566,7 +250,7 @@ fastify.post('/gate/open', async (request, reply) => {
     // 1. Get user profile and validate role
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('role, apartment_unit, colonia_id')
+      .select('role, apartment_unit')
       .eq('id', user.id)
       .single()
 
@@ -601,7 +285,7 @@ fastify.post('/gate/open', async (request, reply) => {
     // 3. Validate gate exists and is enabled
     const { data: gate, error: gateError } = await supabaseAdmin
       .from('gates')
-      .select('id, enabled, colonia_id')
+      .select('id, enabled')
       .eq('id', gateId)
       .single()
 
@@ -635,24 +319,6 @@ fastify.post('/gate/open', async (request, reply) => {
       reply.status(403).send({
         error: 'Forbidden',
         message: 'Gate is disabled'
-      })
-      return
-    }
-
-    // 4. Validate user belongs to the same colonia as the gate
-    if (gate.colonia_id && profile.colonia_id !== gate.colonia_id) {
-      fastify.log.warn(`User ${user.id} tried to access gate ${gateId} from different colonia`)
-      await supabaseAdmin.from('access_logs').insert({
-        user_id: user.id,
-        action: 'OPEN_GATE',
-        status: 'DENIED_NO_ACCESS',
-        gate_id: gateId,
-        ip_address: request.ip
-      })
-
-      reply.status(403).send({
-        error: 'Forbidden',
-        message: 'You do not have access to this gate. Different colonia.'
       })
       return
     }
@@ -738,7 +404,7 @@ fastify.post('/gate/close', async (request, reply) => {
     // 1. Get user profile and validate role
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('role, apartment_unit, colonia_id')
+      .select('role, apartment_unit')
       .eq('id', user.id)
       .single()
 
@@ -773,7 +439,7 @@ fastify.post('/gate/close', async (request, reply) => {
     // 3. Validate gate exists and is enabled
     const { data: gate, error: gateError } = await supabaseAdmin
       .from('gates')
-      .select('id, enabled, colonia_id')
+      .select('id, enabled')
       .eq('id', gateId)
       .single()
 
@@ -807,24 +473,6 @@ fastify.post('/gate/close', async (request, reply) => {
       reply.status(403).send({
         error: 'Forbidden',
         message: 'Gate is disabled'
-      })
-      return
-    }
-
-    // 4. Validate user belongs to the same colonia as the gate
-    if (gate.colonia_id && profile.colonia_id !== gate.colonia_id) {
-      fastify.log.warn(`User ${user.id} tried to access gate ${gateId} from different colonia`)
-      await supabaseAdmin.from('access_logs').insert({
-        user_id: user.id,
-        action: 'CLOSE_GATE',
-        status: 'DENIED_NO_ACCESS',
-        gate_id: gateId,
-        ip_address: request.ip
-      })
-
-      reply.status(403).send({
-        error: 'Forbidden',
-        message: 'You do not have access to this gate. Different colonia.'
       })
       return
     }
