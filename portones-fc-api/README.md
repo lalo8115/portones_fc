@@ -6,17 +6,27 @@ Backend para el sistema de control de portones inteligentes. Construido con Fast
 
 ```
 Mobile App (HTTP POST)
-    ↓
+  ↓
 Fastify Backend (TypeScript)
-    ├── JWT Validation (Supabase)
-    ├── Access Control (Profiles DB)
-    ├── Audit Logs (Access Logs DB)
-    └── MQTT Publisher
-        ↓
-    HiveMQ Broker
-        ↓
-    ESP32 Subscribers
+  ├── JWT Validation (Supabase)
+  ├── Access Control (Profiles + Colonias DB) ✨
+  ├── Audit Logs (Access Logs DB)
+  └── MQTT Publisher
+    ↓
+  HiveMQ Broker
+    ↓
+  ESP32 Subscribers
 ```
+
+## 🌟 Sistema de Colonias
+
+Cada usuario pertenece a una **colonia** y solo puede acceder a los portones de su colonia. Esto permite gestionar múltiples comunidades desde el mismo sistema.
+
+- Los usuarios tienen un `colonia_id`
+- Los portones tienen un `colonia_id`
+- Solo se puede abrir un portón si el usuario pertenece a la misma colonia
+
+Ver [MIGRACION_COLONIAS.md](../MIGRACION_COLONIAS.md) para más detalles sobre la configuración.
 
 ## 🚀 Configuración Inicial
 
@@ -198,10 +208,14 @@ Envía comando para cerrar un portón.
 6. Ejecuta (botón **▶ Run**)
 
 Este script crea:
-- Tabla `profiles` (usuarios con roles)
+- Tabla `colonias` (comunidades/colonias) ✨
+- Tabla `profiles` (usuarios con roles y colonia)
+- Tabla `gates` (portones con colonia)
 - Tabla `access_logs` (auditoría)
 - Políticas RLS (seguridad)
 - Trigger automático para crear perfil al registrarse
+
+**Nota:** Después de ejecutar el script, debes configurar tus colonias. Ver [MIGRACION_COLONIAS.md](../MIGRACION_COLONIAS.md).
 
 ### Manual Setup
 

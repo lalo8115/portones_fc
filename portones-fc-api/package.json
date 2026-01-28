@@ -25,10 +25,10 @@
   },
   "devDependencies": {
     "@types/node": "^25.0.1",
+    "@vitest/ui": "^4.0.18",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3",
-    "vitest": "^1.0.0",
-    "@vitest/ui": "^1.0.0"
+    "vitest": "^4.0.18"
   }
 }
