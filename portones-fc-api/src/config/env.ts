@@ -16,6 +16,11 @@ interface EnvConfig {
   MQTT_USE_TLS: boolean
   PORT: number
   NODE_ENV: 'development' | 'production' | 'test'
+  OPENPAY_MERCHANT_ID: string
+  OPENPAY_PRIVATE_KEY: string
+  OPENPAY_PUBLIC_KEY: string
+  OPENPAY_PRODUCTION: boolean
+  MAINTENANCE_MONTHLY_AMOUNT: number
 }
 
 const requiredEnvVars = [
@@ -25,7 +30,10 @@ const requiredEnvVars = [
   'MQTT_HOST',
   'MQTT_PORT',
   'MQTT_USERNAME',
-  'MQTT_PASSWORD'
+  'MQTT_PASSWORD',
+  'OPENPAY_MERCHANT_ID',
+  'OPENPAY_PRIVATE_KEY',
+  'OPENPAY_PUBLIC_KEY'
 ]
 
 const missingEnvVars = requiredEnvVars.filter(
@@ -51,7 +59,12 @@ export const config: EnvConfig = {
   MQTT_PASSWORD: process.env.MQTT_PASSWORD || '',
   MQTT_USE_TLS: process.env.MQTT_USE_TLS === 'true',
   PORT: parseInt(process.env.PORT || '3000', 10),
-  NODE_ENV: (process.env.NODE_ENV as any) || 'development'
+  NODE_ENV: (process.env.NODE_ENV as any) || 'development',
+  OPENPAY_MERCHANT_ID: (process.env.OPENPAY_MERCHANT_ID || '').trim(),
+  OPENPAY_PRIVATE_KEY: (process.env.OPENPAY_PRIVATE_KEY || '').trim(),
+  OPENPAY_PUBLIC_KEY: (process.env.OPENPAY_PUBLIC_KEY || '').trim(),
+  OPENPAY_PRODUCTION: process.env.OPENPAY_PRODUCTION?.trim() === 'true',
+  MAINTENANCE_MONTHLY_AMOUNT: parseFloat(process.env.MAINTENANCE_MONTHLY_AMOUNT || '300')
 }
 
 // Validar que MQTT_PORT es válido

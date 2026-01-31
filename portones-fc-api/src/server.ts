@@ -333,7 +333,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     // Obtener colonia y monto de mantenimiento
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, colonias(id, nombre, maintenance_monthly_amount)')
+      .select('colonia_id, apartment_unit, colonias(id, nombre, maintenance_monthly_amount)')
       .eq('id', user.id)
       .single() as any
 
@@ -347,6 +347,16 @@ fastify.post('/payment/maintenance', async (request, reply) => {
 
     const coloniaData = (profile?.colonias as any) || {}
     const coloniaAmount = coloniaData?.maintenance_monthly_amount as number | undefined
+    const coloniaId = profile?.colonia_id || null
+    const apartmentUnit = profile?.apartment_unit || null
+
+    if (!coloniaId || !apartmentUnit) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'No hay colonia o casa asignada al usuario'
+      })
+      return
+    }
     const amountToCharge =
       typeof coloniaAmount === 'number' && !Number.isNaN(coloniaAmount)
         ? coloniaAmount
@@ -395,6 +405,27 @@ fastify.post('/payment/maintenance', async (request, reply) => {
 
     const charge = await openpayRequest('POST', '/charges', chargePayload)
 
+    // Guardar el pago en la base de datos
+    const currentDate = new Date()
+    const { error: paymentError } = await supabaseAdmin
+      .from('maintenance_payments')
+      .insert({
+        user_id: user.id,
+        colonia_id: coloniaId,
+        apartment_unit: apartmentUnit,
+        amount: amountToCharge,
+        payment_date: currentDate.toISOString(),
+        period_month: currentDate.getMonth() + 1,
+        period_year: currentDate.getFullYear(),
+        transaction_id: charge.id,
+        status: charge.status === 'completed' ? 'completed' : 'pending',
+        payment_method: 'card'
+      })
+
+    if (paymentError) {
+      fastify.log.error({ error: paymentError }, 'Error al guardar el pago en la base de datos')
+    }
+
     reply.send({
       ok: true,
       chargeId: charge.id,
@@ -412,6 +443,93 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     reply.status(400).send({
       error: 'Payment Error',
       message
+    })
+  }
+})
+
+// Get payment status for current user
+fastify.get('/payment/status', async (request, reply) => {
+  try {
+    const user = (request as any).user
+
+    // Obtener colonia y casa (apartment_unit)
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, apartment_unit, colonias(maintenance_monthly_amount)')
+      .eq('id', user.id)
+      .single() as any
+
+    if (profileError) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'No se pudo obtener el perfil del usuario'
+      })
+      return
+    }
+
+    const coloniaData = (profile?.colonias as any) || {}
+    const maintenanceAmount = coloniaData?.maintenance_monthly_amount || 500
+    const coloniaId = profile?.colonia_id || null
+    const apartmentUnit = profile?.apartment_unit || null
+
+    if (!coloniaId || !apartmentUnit) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'No hay colonia o casa asignada al usuario'
+      })
+      return
+    }
+
+    // Obtener el último pago del usuario
+    const { data: lastPayment, error: paymentError } = await supabaseAdmin
+      .from('maintenance_payments')
+      .select('*')
+      .eq('colonia_id', coloniaId)
+      .eq('apartment_unit', apartmentUnit)
+      .eq('status', 'completed')
+      .order('payment_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (paymentError) {
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Error al obtener el último pago'
+      })
+      return
+    }
+
+    // Calcular fechas
+    const currentDate = new Date()
+    const currentMonth = currentDate.getMonth() + 1
+    const currentYear = currentDate.getFullYear()
+    
+    // Próximo pago es el día 1 del próximo mes
+    const nextPaymentDate = new Date(currentYear, currentMonth, 1)
+    const daysUntilPayment = Math.ceil((nextPaymentDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24))
+
+    // Verificar si ya pagó este mes
+    const isPaid = lastPayment && 
+                   lastPayment.period_month === currentMonth && 
+                   lastPayment.period_year === currentYear
+
+    reply.send({
+      lastPaymentDate: lastPayment?.payment_date || null,
+      lastPaymentAmount: lastPayment?.amount || null,
+      nextPaymentDue: nextPaymentDate.toISOString(),
+      isPaid: !!isPaid,
+      daysUntilDue: daysUntilPayment,
+      currentPeriod: {
+        month: currentMonth,
+        year: currentYear
+      },
+      maintenanceAmount
+    })
+  } catch (error: any) {
+    fastify.log.error({ error }, 'Error obteniendo estado de pago')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al obtener el estado de pago'
     })
   }
 })
