@@ -214,6 +214,81 @@ ALTER TABLE access_logs
 CREATE INDEX IF NOT EXISTS idx_access_logs_gate_id ON access_logs(gate_id);
 
 -- ==========================================
+-- CREATE MAINTENANCE_PAYMENTS TABLE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS maintenance_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  colonia_id UUID REFERENCES colonias(id) ON DELETE SET NULL,
+  apartment_unit TEXT,
+  amount DECIMAL(10, 2) NOT NULL,
+  payment_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  period_month SMALLINT NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+  period_year SMALLINT NOT NULL CHECK (period_year >= 2020),
+  transaction_id TEXT,
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'failed', 'refunded')),
+  payment_method TEXT DEFAULT 'card',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Ensure column exists for existing installations
+ALTER TABLE maintenance_payments
+  ADD COLUMN IF NOT EXISTS apartment_unit TEXT;
+
+-- Add comments
+COMMENT ON TABLE maintenance_payments IS 'Record of maintenance payment transactions';
+COMMENT ON COLUMN maintenance_payments.user_id IS 'User who made the payment';
+COMMENT ON COLUMN maintenance_payments.colonia_id IS 'Colonia associated with payment';
+COMMENT ON COLUMN maintenance_payments.apartment_unit IS 'Apartment unit (house) identifier';
+COMMENT ON COLUMN maintenance_payments.amount IS 'Payment amount in MXN';
+COMMENT ON COLUMN maintenance_payments.period_month IS 'Month being paid for (1-12)';
+COMMENT ON COLUMN maintenance_payments.period_year IS 'Year being paid for';
+COMMENT ON COLUMN maintenance_payments.transaction_id IS 'External payment gateway transaction ID';
+COMMENT ON COLUMN maintenance_payments.status IS 'Payment status: pending, completed, failed, refunded';
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_maintenance_payments_user_id ON maintenance_payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_maintenance_payments_colonia_id ON maintenance_payments(colonia_id);
+CREATE INDEX IF NOT EXISTS idx_maintenance_payments_apartment_unit ON maintenance_payments(apartment_unit);
+CREATE INDEX IF NOT EXISTS idx_maintenance_payments_period ON maintenance_payments(period_year DESC, period_month DESC);
+CREATE INDEX IF NOT EXISTS idx_maintenance_payments_status ON maintenance_payments(status);
+CREATE INDEX IF NOT EXISTS idx_maintenance_payments_payment_date ON maintenance_payments(payment_date DESC);
+
+-- RLS for maintenance_payments
+ALTER TABLE maintenance_payments ENABLE ROW LEVEL SECURITY;
+
+-- Drop policies if exist (idempotence)
+DROP POLICY IF EXISTS "Users can view own payments" ON maintenance_payments;
+DROP POLICY IF EXISTS "Admins can view all payments" ON maintenance_payments;
+DROP POLICY IF EXISTS "Service role full access payments" ON maintenance_payments;
+
+-- Users can view their own payment history
+CREATE POLICY "Users can view own payments"
+  ON maintenance_payments FOR SELECT
+  USING (auth.uid() = user_id);
+
+-- Admins can view all payments
+CREATE POLICY "Admins can view all payments"
+  ON maintenance_payments FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Service role (backend) can do everything
+CREATE POLICY "Service role full access payments"
+  ON maintenance_payments FOR ALL
+  USING (auth.role() = 'service_role');
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS maintenance_payments_set_updated_at ON maintenance_payments;
+CREATE TRIGGER maintenance_payments_set_updated_at
+  BEFORE UPDATE ON maintenance_payments
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ==========================================
 -- 6. CREATE AUTO-CREATE PROFILE TRIGGER
 -- ==========================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
