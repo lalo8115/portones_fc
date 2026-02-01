@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { AuthRequest, Prompt, ResponseType } from 'expo-auth-session'
 import { Platform } from 'react-native'
 import { createClient, Session } from '@supabase/supabase-js'
 import * as WebBrowser from 'expo-web-browser'
@@ -251,19 +252,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const state = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-    const authUrl =
-      'https://accounts.google.com/o/oauth2/v2/auth' +
-      `?client_id=${encodeURIComponent(clientId)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&response_type=${encodeURIComponent('id_token')}` +
-      `&scope=${encodeURIComponent('openid email profile')}` +
-      `&nonce=${encodeURIComponent(nonce)}` +
-      `&state=${encodeURIComponent(state)}` +
-      `&prompt=${encodeURIComponent('select_account')}`
+    const request = new AuthRequest({
+      clientId,
+      redirectUri,
+      responseType: ResponseType.IdToken,
+      scopes: ['openid', 'email', 'profile'],
+      state,
+      usePKCE: false,
+      prompt: Prompt.SelectAccount,
+      extraParams: { nonce }
+    })
 
-    const result = await AuthSession.startAsync({
-      authUrl,
-      returnUrl: redirectUri
+    const result = await request.promptAsync({
+      authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth'
     })
 
     if (result.type !== 'success') {
