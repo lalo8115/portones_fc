@@ -55,7 +55,7 @@ export const LoginScreen: React.FC = () => {
         </Text>
       </YStack>
 
-      <YStack space='$3'>
+      <YStack space='$3' marginTop='$16'>
         <Input
           placeholder='Email'
           value={email}
@@ -90,6 +90,7 @@ export const LoginScreen: React.FC = () => {
         <Button
           size='$4'
           theme='blue'
+          marginTop='$3'
           onPress={handleSubmit}
           disabled={loading || googleLoading || !email || !password}
         >

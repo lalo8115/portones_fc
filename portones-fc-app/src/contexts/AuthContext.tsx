@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Platform } from 'react-native'
 import { createClient, Session } from '@supabase/supabase-js'
 import * as WebBrowser from 'expo-web-browser'
 import * as Linking from 'expo-linking'
+import * as AuthSession from 'expo-auth-session'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -56,6 +57,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [supabase] = useState(() => createClient(supabaseUrl, supabaseAnonKey))
+  const pendingGoogleSignIn = useRef<{
+    resolve: () => void
+    reject: (error: any) => void
+  } | null>(null)
 
   const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
 
@@ -217,9 +222,99 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (error) throw error
   }
 
+  const signInWithGoogleIdToken = async (): Promise<void> => {
+    const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || ''
+    const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || ''
+    const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || ''
+    const expoClientId = process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID || ''
+
+    const clientId =
+      Platform.OS === 'web'
+        ? webClientId
+        : Platform.OS === 'ios'
+          ? iosClientId
+          : Platform.OS === 'android'
+            ? androidClientId
+            : expoClientId
+
+    if (!clientId) {
+      throw new Error(
+        'Faltan Client IDs de Google. Define EXPO_PUBLIC_GOOGLE_*_CLIENT_ID para usar el flujo por token.'
+      )
+    }
+
+    const redirectUri = AuthSession.makeRedirectUri({
+      path: 'auth/callback'
+    })
+
+    // Nonce recomendado para flujo id_token
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const state = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    const authUrl =
+      'https://accounts.google.com/o/oauth2/v2/auth' +
+      `?client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_type=${encodeURIComponent('id_token')}` +
+      `&scope=${encodeURIComponent('openid email profile')}` +
+      `&nonce=${encodeURIComponent(nonce)}` +
+      `&state=${encodeURIComponent(state)}` +
+      `&prompt=${encodeURIComponent('select_account')}`
+
+    const result = await AuthSession.startAsync({
+      authUrl,
+      returnUrl: redirectUri
+    })
+
+    if (result.type !== 'success') {
+      if (result.type === 'cancel' || result.type === 'dismiss') {
+        throw new Error('Autenticación cancelada por el usuario')
+      }
+      throw new Error('No se completó la autenticación con Google')
+    }
+
+    const idToken = (result.params as any)?.id_token
+    if (!idToken) {
+      throw new Error('Google no devolvió id_token (revisa client_id/redirect_uri)')
+    }
+
+    const { error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken
+    })
+    if (error) throw error
+  }
+
   const signInWithGoogle = async () => {
     try {
       const isWeb = Platform.OS === 'web'
+
+      // Preferir flujo por token (id_token) si existen client IDs de Google.
+      const hasAnyGoogleClientId = Boolean(
+        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
+          process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
+          process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+          process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID
+      )
+
+      if (hasAnyGoogleClientId) {
+        // Asegura que llamadas concurrentes no se mezclen.
+        if (pendingGoogleSignIn.current) {
+          throw new Error('Ya hay un inicio de sesión en progreso')
+        }
+
+        return await new Promise<void>(async (resolve, reject) => {
+          pendingGoogleSignIn.current = { resolve, reject }
+          try {
+            await signInWithGoogleIdToken()
+            pendingGoogleSignIn.current?.resolve()
+          } catch (e) {
+            pendingGoogleSignIn.current?.reject(e)
+          } finally {
+            pendingGoogleSignIn.current = null
+          }
+        })
+      }
       
       if (isWeb) {
         // En web, usar el flujo directo sin WebBrowser
@@ -273,7 +368,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         console.log('Resultado de autenticación:', result.type)
 
         if (result.type === 'success') {
-          console.log('Autenticación exitosa')
+          console.log('Autenticación exitosa, intercambiando code por sesión...')
+          const url = (result as any).url
+          if (!url) {
+            throw new Error('No se recibió URL de retorno para completar la sesión')
+          }
+
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(url)
+          if (exchangeError) {
+            console.error('Error en exchangeCodeForSession:', exchangeError)
+            throw exchangeError
+          }
           return
         }
         

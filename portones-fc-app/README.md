@@ -24,6 +24,11 @@ Edita `.env` con tus credenciales:
 EXPO_PUBLIC_API_URL=http://tu-backend-ip:3000
 EXPO_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=tu-supabase-anon-key
+
+# (Opcional) Google OAuth Client IDs para login con token (id_token -> Supabase)
+EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=
 ```
 
 **⚠️ Importante para dispositivos físicos:**
