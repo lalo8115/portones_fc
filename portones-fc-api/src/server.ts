@@ -1008,6 +1008,57 @@ fastify.post('/gate/close', async (request, reply) => {
   }
 })
 
+// Update apartment unit route
+fastify.put('/profile/apartment-unit', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { apartment_unit } = request.body as { apartment_unit?: string }
+
+    if (!apartment_unit || typeof apartment_unit !== 'string' || !apartment_unit.trim()) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El número de casa es requerido'
+      })
+      return
+    }
+
+    const trimmedUnit = apartment_unit.trim()
+
+    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update({ apartment_unit: trimmedUnit, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias(id, nombre)')
+      .single()
+
+    if (updateError || !updatedProfile) {
+      fastify.log.error({ error: updateError }, 'Error updating apartment_unit')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'No se pudo actualizar el número de casa'
+      })
+      return
+    }
+
+    reply.send({
+      id: updatedProfile.id,
+      email: user.email,
+      role: updatedProfile.role,
+      apartment_unit: updatedProfile.apartment_unit,
+      colonia_id: updatedProfile.colonia_id,
+      colonia: updatedProfile.colonias || null,
+      created_at: updatedProfile.created_at,
+      updated_at: updatedProfile.updated_at
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /profile/apartment-unit')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to update apartment unit'
+    })
+  }
+})
+
 // Graceful shutdown
 const gracefulShutdown = async () => {
   fastify.log.info('Shutting down gracefully...')

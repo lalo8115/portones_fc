@@ -36,6 +36,7 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
   joinColonia: (coloniaCode: string) => Promise<UserProfile>
+  updateApartmentUnit: (apartmentUnit: string) => Promise<UserProfile>
   signOut: () => Promise<void>
   loading: boolean
   refreshProfile: () => Promise<void>
@@ -63,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     reject: (error: any) => void
   } | null>(null)
 
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
 
   const fetchProfile = async (userId: string, token: string) => {
     try {
@@ -211,6 +212,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!response.ok) {
       const errorBody = await response.json().catch(() => null)
       throw new Error(errorBody?.message || 'No se pudo registrar la colonia')
+    }
+
+    const data = await response.json()
+    setProfile(data)
+    return data
+  }
+
+  const updateApartmentUnit = async (apartmentUnit: string) => {
+    if (!session?.access_token) {
+      throw new Error('Sesión no encontrada, vuelve a iniciar sesión')
+    }
+
+    const response = await fetch(`${apiUrl}/profile/apartment-unit`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ apartment_unit: apartmentUnit })
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null)
+      throw new Error(errorBody?.message || 'No se pudo actualizar el número de casa')
     }
 
     const data = await response.json()
@@ -434,6 +459,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     signUp,
     signInWithGoogle,
     joinColonia,
+    updateApartmentUnit,
     signOut,
     loading,
     refreshProfile

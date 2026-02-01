@@ -3,11 +3,13 @@ import { YStack, Input, Button, Text, H2, Separator, Card } from 'tamagui'
 import { useAuth } from '../contexts/AuthContext'
 
 export const ColoniaCodeScreen: React.FC = () => {
-  const { joinColonia, signOut, user } = useAuth()
+  const { joinColonia, updateApartmentUnit, signOut, user, profile } = useAuth()
   const [code, setCode] = useState('')
+  const [apartmentUnit, setApartmentUnit] = useState(profile?.apartment_unit || '')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [updatingUnit, setUpdatingUnit] = useState(false)
 
   const handleSubmit = async () => {
     setError('')
@@ -21,6 +23,21 @@ export const ColoniaCodeScreen: React.FC = () => {
       setError(err.message || 'No se pudo registrar la colonia')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleUpdateApartmentUnit = async () => {
+    setError('')
+    setSuccess(false)
+    setUpdatingUnit(true)
+
+    try {
+      await updateApartmentUnit(apartmentUnit.trim())
+      setSuccess(true)
+    } catch (err: any) {
+      setError(err.message || 'No se pudo actualizar el número de casa')
+    } finally {
+      setUpdatingUnit(false)
     }
   }
 
@@ -50,6 +67,15 @@ export const ColoniaCodeScreen: React.FC = () => {
             placeholder='Código de colonia'
             value={code}
             onChangeText={setCode}
+            autoCapitalize='none'
+            autoCorrect={false}
+            size='$4'
+          />
+
+          <Input
+            placeholder='Número de casa'
+            value={apartmentUnit}
+            onChangeText={setApartmentUnit}
             autoCapitalize='none'
             autoCorrect={false}
             size='$4'
@@ -91,6 +117,17 @@ export const ColoniaCodeScreen: React.FC = () => {
           >
             {loading ? 'Verificando...' : 'Unirme a la colonia'}
           </Button>
+
+          {profile?.colonia_id && (
+            <Button
+              size='$4'
+              theme='green'
+              onPress={handleUpdateApartmentUnit}
+              disabled={updatingUnit || !apartmentUnit.trim()}
+            >
+              {updatingUnit ? 'Actualizando...' : 'Actualizar número de casa'}
+            </Button>
+          )}
 
           <Separator />
 
