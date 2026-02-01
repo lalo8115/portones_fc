@@ -11,7 +11,7 @@ import tamaguiConfig from '../tamagui.config'
 
 const queryClient = new QueryClient()
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
 
 type NavigationScreen = 'gateControl' | 'maintenancePayment'
 

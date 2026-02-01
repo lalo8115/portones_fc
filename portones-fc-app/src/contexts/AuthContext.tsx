@@ -57,7 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState(true)
   const [supabase] = useState(() => createClient(supabaseUrl, supabaseAnonKey))
 
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
 
   const fetchProfile = async (userId: string, token: string) => {
     try {
