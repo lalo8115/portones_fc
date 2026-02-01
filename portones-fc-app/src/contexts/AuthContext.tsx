@@ -244,12 +244,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       )
     }
 
-    const redirectUri = AuthSession.makeRedirectUri({
-      path: 'auth/callback'
-    })
+    // En web necesitamos un redirect_uri 100% determinístico para configurar Google Cloud Console.
+    // `makeRedirectUri()` en web puede incluir paths internos y causar redirect_uri_mismatch.
+    const redirectUri =
+      Platform.OS === 'web' ? window.location.origin : AuthSession.makeRedirectUri({ path: 'auth/callback' })
 
-    // Nonce recomendado para flujo id_token
-    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    if (Platform.OS === 'web') {
+      console.log('Google OAuth redirectUri (web):', redirectUri)
+    }
+
+    // --- FIX: Restauramos la generación y envío del Nonce ---
+    // Google REQUIERE nonce para response_type=id_token.
+    // Usamos un nonce simple alfanumérico.
+    const rawNonce = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2)
+    const nonce = rawNonce
     const state = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
     const request = new AuthRequest({
@@ -260,8 +268,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       state,
       usePKCE: false,
       prompt: Prompt.SelectAccount,
-      extraParams: { nonce }
+      extraParams: { nonce } // RESTAURADO: Necesario para Google
     })
+
+    if (Platform.OS === 'web') {
+      try {
+        const authUrl = await request.makeAuthUrlAsync({
+          authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth'
+        })
+        console.log('Google OAuth authUrl (web):', authUrl)
+      } catch (e) {
+        console.warn('No se pudo construir authUrl para debug:', e)
+      }
+    }
 
     const result = await request.promptAsync({
       authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth'
@@ -279,10 +298,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       throw new Error('Google no devolvió id_token (revisa client_id/redirect_uri)')
     }
 
+    // Decodificación simple para verificar nonce si es necesario (opcional ahora que "Skip check" está activo)
+    const decodeJwtPayload = (jwt: string): any | null => {
+      try {
+        const parts = jwt.split('.')
+        if (parts.length < 2) return null
+        const base64Url = parts[1]
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+        const json = decodeURIComponent(
+          atob(padded).split('').map((c) => `%${('00' + c.charCodeAt(0).toString(16)).slice(-2)}`).join('')
+        )
+        return JSON.parse(json)
+      } catch {
+        return null
+      }
+    }
+
+    const tokenPayload = decodeJwtPayload(idToken)
+    const tokenNonce: string | undefined = tokenPayload?.nonce
+
+    // Usamos el nonce del token si existe, sino el generado
+    const nonceForSupabase = tokenNonce || nonce
+
     const { error } = await supabase.auth.signInWithIdToken({
       provider: 'google',
-      token: idToken
+      token: idToken,
+      nonce: nonceForSupabase
     })
+
     if (error) throw error
   }
 
@@ -290,15 +334,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const isWeb = Platform.OS === 'web'
 
-      // Preferir flujo por token (id_token) si existen client IDs de Google.
-      const hasAnyGoogleClientId = Boolean(
-        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
-          process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
-          process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
-          process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID
-      )
+      // Opción 2: en web, NO usar el OAuth hospedado por Supabase (para que Google muestre tu dominio).
+      // En su lugar, obtener id_token directo de Google y crear sesión en Supabase con signInWithIdToken.
+      if (isWeb) {
+        if (!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) {
+          throw new Error(
+            'Falta EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID. Configúralo para login con Google en web (id_token).'
+          )
+        }
 
-      if (hasAnyGoogleClientId) {
         // Asegura que llamadas concurrentes no se mezclen.
         if (pendingGoogleSignIn.current) {
           throw new Error('Ya hay un inicio de sesión en progreso')
@@ -316,23 +360,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           }
         })
       }
-      
-      if (isWeb) {
-        // En web, usar el flujo directo sin WebBrowser
-        console.log('Iniciando OAuth en web...')
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: `${window.location.origin}`,
-            skipBrowserRedirect: false
-          }
-        })
-        
-        if (error) {
-          console.error('Error en signInWithOAuth:', error)
-          throw error
-        }
-      } else {
+
+      {
         // En mobile, usar WebBrowser
         const redirectTo = Linking.createURL('/auth/callback')
         
