@@ -1329,7 +1329,7 @@ fastify.get('/forum/posts', async (request, reply) => {
         category,
         created_at,
         author_id,
-        profiles!forum_posts_author_id_fkey (
+        profiles:author_id (
           id,
           apartment_unit
         )
@@ -1369,7 +1369,7 @@ fastify.get('/forum/posts', async (request, reply) => {
       category: post.category,
       created_at: post.created_at,
       author_name: authorNames[post.author_id] || 'Usuario',
-      author_unit: post.profiles?.apartment_unit || undefined,
+      author_unit: Array.isArray(post.profiles) ? post.profiles[0]?.apartment_unit : post.profiles?.apartment_unit,
       replies_count: 0 // For future implementation
     })) || []
 
@@ -1476,7 +1476,7 @@ fastify.post('/forum/posts', async (request, reply) => {
       category: newPost.category,
       created_at: newPost.created_at,
       author_name: authorName,
-      author_unit: profile.apartment_unit || undefined,
+      author_unit: profile.apartment_unit ?? undefined,
       replies_count: 0
     })
   } catch (error) {
