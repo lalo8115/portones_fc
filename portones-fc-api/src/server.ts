@@ -636,14 +636,24 @@ fastify.get('/payment/status', async (request, reply) => {
     // Obtener colonia y casa (apartment_unit)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, apartment_unit, colonias(maintenance_monthly_amount)')
+      .select('colonia_id, apartment_unit, colonias!fk_profiles_colonia(maintenance_monthly_amount)')
       .eq('id', user.id)
       .single() as any
 
     if (profileError) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'No se pudo obtener el perfil del usuario'
+      fastify.log.warn({ error: profileError }, 'No se pudo obtener el perfil del usuario')
+      reply.send({
+        lastPaymentDate: null,
+        lastPaymentAmount: null,
+        nextPaymentDue: null,
+        isPaid: false,
+        daysUntilDue: null,
+        currentPeriod: {
+          month: new Date().getMonth() + 1,
+          year: new Date().getFullYear()
+        },
+        maintenanceAmount: null,
+        reason: 'profile_not_found'
       })
       return
     }
@@ -654,9 +664,18 @@ fastify.get('/payment/status', async (request, reply) => {
     const apartmentUnit = profile?.apartment_unit || null
 
     if (!coloniaId || !apartmentUnit) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'No hay colonia o casa asignada al usuario'
+      reply.send({
+        lastPaymentDate: null,
+        lastPaymentAmount: null,
+        nextPaymentDue: null,
+        isPaid: false,
+        daysUntilDue: null,
+        currentPeriod: {
+          month: new Date().getMonth() + 1,
+          year: new Date().getFullYear()
+        },
+        maintenanceAmount,
+        reason: 'missing_colonia_or_apartment'
       })
       return
     }
