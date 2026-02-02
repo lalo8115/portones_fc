@@ -246,7 +246,7 @@ fastify.get('/access/history', async (request, reply) => {
       throw gatesError
     }
 
-    let profilesMap = new Map<string, { apartment_unit: string | null }>()
+    let profilesMap = new Map<string, { apartment_unit: string | null; email: string | null }>()
 
     if (profile.role === 'admin') {
       const userIds = Array.from(
@@ -256,7 +256,7 @@ fastify.get('/access/history', async (request, reply) => {
       if (userIds.length) {
         const { data: profilesData, error: profilesError } = await supabaseAdmin
           .from('profiles')
-          .select('id, apartment_unit')
+          .select('id, apartment_unit, email')
           .in('id', userIds)
 
         if (profilesError) {
@@ -264,11 +264,11 @@ fastify.get('/access/history', async (request, reply) => {
         }
 
         profilesData?.forEach((p: any) => {
-          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null })
+          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null, email: p.email ?? null })
         })
       }
     } else {
-      profilesMap.set(user.id, { apartment_unit: profile.apartment_unit ?? null })
+      profilesMap.set(user.id, { apartment_unit: profile.apartment_unit ?? null, email: user.email ?? null })
     }
 
     const gatesMap = new Map<number, { name?: string; type?: string }>()
@@ -278,7 +278,7 @@ fastify.get('/access/history', async (request, reply) => {
 
     const records = (logs ?? []).map((log: any) => {
       const gateInfo = gatesMap.get(log.gate_id) || {}
-      const profileInfo = profilesMap.get(log.user_id) || { apartment_unit: null }
+      const profileInfo = profilesMap.get(log.user_id) || { apartment_unit: null, email: null }
 
       return {
       id: log.id,
@@ -286,7 +286,7 @@ fastify.get('/access/history', async (request, reply) => {
       gate_name: gateInfo.name || (log.gate_id ? `Portón ${log.gate_id}` : 'Portón'),
       gate_type: gateInfo.type || 'ENTRADA',
       user_id: log.user_id,
-      user_email: null,
+      user_email: profileInfo.email ?? null,
       apartment_unit: profileInfo.apartment_unit ?? null,
       action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
       timestamp: log.timestamp,
