@@ -887,7 +887,12 @@ fastify.post('/profile/colonia', async (request, reply) => {
 fastify.post('/gate/open', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { gateId } = request.body as any
+    const { gateId, method } = request.body as any
+
+    const accessMethod = (() => {
+      const raw = typeof method === 'string' ? method.trim().toUpperCase() : ''
+      return raw === 'QR' ? 'QR' : 'APP'
+    })()
 
     // Validate gateId
     if (!gateId || typeof gateId !== 'number' || gateId < 1 || gateId > 4) {
@@ -924,7 +929,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_REVOKED',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -949,7 +954,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -967,7 +972,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -986,7 +991,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1032,7 +1037,7 @@ fastify.post('/gate/open', async (request, reply) => {
       user_id: user.id,
       action: 'OPEN_GATE',
       status: 'SUCCESS',
-      method: 'APP',
+      method: accessMethod,
       gate_id: gateId,
       ip_address: request.ip
     })
@@ -1064,7 +1069,12 @@ fastify.post('/gate/open', async (request, reply) => {
 fastify.post('/gate/close', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { gateId } = request.body as any
+    const { gateId, method } = request.body as any
+
+    const accessMethod = (() => {
+      const raw = typeof method === 'string' ? method.trim().toUpperCase() : ''
+      return raw === 'QR' ? 'QR' : 'APP'
+    })()
 
     // Validate gateId
     if (!gateId || typeof gateId !== 'number' || gateId < 1 || gateId > 4) {
@@ -1101,7 +1111,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_REVOKED',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1126,7 +1136,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1144,7 +1154,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1163,7 +1173,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
-        method: 'APP',
+        method: accessMethod,
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1209,7 +1219,7 @@ fastify.post('/gate/close', async (request, reply) => {
       user_id: user.id,
       action: 'CLOSE_GATE',
       status: 'SUCCESS',
-      method: 'APP',
+      method: accessMethod,
       gate_id: gateId,
       ip_address: request.ip
     })

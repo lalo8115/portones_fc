@@ -50,7 +50,8 @@ interface OpenGateResponse {
 const openGate = async (
   apiUrl: string,
   authToken: string,
-  gateId: number
+  gateId: number,
+  method?: 'APP' | 'QR'
 ): Promise<OpenGateResponse> => {
   const response = await fetch(`${apiUrl}/gate/open`, {
     method: 'POST',
@@ -58,7 +59,7 @@ const openGate = async (
       Authorization: `Bearer ${authToken}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ gateId })
+    body: JSON.stringify({ gateId, ...(method ? { method } : {}) })
   })
 
   if (!response.ok) {
@@ -349,7 +350,7 @@ export const GateControl: React.FC<GateControlProps> = ({
       if (parsed?.c && parsed.c === expected?.c) {
         // Abrir primer portón disponible
         if (gates.length > 0) {
-          openGate(apiUrl, authToken, gates[0].id)
+          openGate(apiUrl, authToken, gates[0].id, 'QR')
             .then(() => refetchGates())
             .catch(() => setScanError('Error al abrir portón'))
         } else {
@@ -1048,7 +1049,7 @@ export const GateControl: React.FC<GateControlProps> = ({
                 icon={<ChevronLeft size={18} color='#369eff' />}
               >
                 <Text color='#369eff' fontWeight='700'>
-                  {currentScreen === 2 ? 'Portones' : 'Pagos'}
+                  {currentScreen === 2 ? 'Portones' : 'Menú'}
                 </Text>
               </Button>
               <Button
