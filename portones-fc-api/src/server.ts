@@ -246,29 +246,49 @@ fastify.get('/access/history', async (request, reply) => {
       throw gatesError
     }
 
-    let profilesMap = new Map<string, { apartment_unit: string | null; email: string | null }>()
+    // Get user emails from auth.users
+    const userIds = Array.from(
+      new Set((logs ?? []).map((log: any) => log.user_id).filter(Boolean))
+    )
+
+    let emailsMap = new Map<string, string>()
+    
+    if (userIds.length > 0) {
+      // Get emails from auth.users using admin client
+      const { data: usersData, error: usersError } = await supabaseAdmin.auth.admin.listUsers()
+      
+      if (!usersError && usersData?.users) {
+        usersData.users.forEach((authUser: any) => {
+          if (userIds.includes(authUser.id)) {
+            emailsMap.set(authUser.id, authUser.email || '')
+          }
+        })
+      }
+    }
+
+    let profilesMap = new Map<string, { apartment_unit: string | null }>()
 
     if (profile.role === 'admin') {
-      const userIds = Array.from(
+      const profileUserIds = Array.from(
         new Set((logs ?? []).map((log: any) => log.user_id).filter(Boolean))
       )
 
-      if (userIds.length) {
+      if (profileUserIds.length) {
         const { data: profilesData, error: profilesError } = await supabaseAdmin
           .from('profiles')
-          .select('id, apartment_unit, email')
-          .in('id', userIds)
+          .select('id, apartment_unit')
+          .in('id', profileUserIds)
 
         if (profilesError) {
           throw profilesError
         }
 
         profilesData?.forEach((p: any) => {
-          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null, email: p.email ?? null })
+          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null })
         })
       }
     } else {
-      profilesMap.set(user.id, { apartment_unit: profile.apartment_unit ?? null, email: user.email ?? null })
+      profilesMap.set(user.id, { apartment_unit: profile.apartment_unit ?? null })
     }
 
     const gatesMap = new Map<number, { name?: string; type?: string }>()
@@ -278,7 +298,8 @@ fastify.get('/access/history', async (request, reply) => {
 
     const records = (logs ?? []).map((log: any) => {
       const gateInfo = gatesMap.get(log.gate_id) || {}
-      const profileInfo = profilesMap.get(log.user_id) || { apartment_unit: null, email: null }
+      const profileInfo = profilesMap.get(log.user_id) || { apartment_unit: null }
+      const userEmail = emailsMap.get(log.user_id) || null
 
       return {
       id: log.id,
@@ -286,7 +307,7 @@ fastify.get('/access/history', async (request, reply) => {
       gate_name: gateInfo.name || (log.gate_id ? `Portón ${log.gate_id}` : 'Portón'),
       gate_type: gateInfo.type || 'ENTRADA',
       user_id: log.user_id,
-      user_email: profileInfo.email ?? null,
+      user_email: userEmail,
       apartment_unit: profileInfo.apartment_unit ?? null,
       action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
       timestamp: log.timestamp,
