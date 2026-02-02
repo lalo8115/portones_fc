@@ -200,7 +200,7 @@ fastify.get('/access/history', async (request, reply) => {
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('role')
+      .select('role, apartment_unit')
       .eq('id', user.id)
       .single()
 
@@ -214,19 +214,9 @@ fastify.get('/access/history', async (request, reply) => {
 
     let query = supabaseAdmin
       .from('access_logs')
-      .select(
-        `
-        id,
-        user_id,
-        action,
-        status,
-        timestamp,
-        gate_id,
-        profiles(apartment_unit),
-        gates(name, type)
-      `,
-        { count: 'exact' }
-      )
+      .select('id, user_id, action, status, timestamp, gate_id', {
+        count: 'exact'
+      })
       .order('timestamp', { ascending: false })
       .limit(limit)
 
@@ -234,25 +224,76 @@ fastify.get('/access/history', async (request, reply) => {
       query = query.eq('user_id', user.id)
     }
 
-    const { data, error: logsError, count } = await query
+    const { data: logs, error: logsError, count } = await query
 
     if (logsError) {
       throw logsError
     }
 
-    const records = (data ?? []).map((log: any) => ({
+    const gateIds = Array.from(
+      new Set(
+        (logs ?? [])
+          .map((log: any) => log.gate_id)
+          .filter((id: any) => typeof id === 'number')
+      )
+    )
+
+    const { data: gatesData, error: gatesError } = gateIds.length
+      ? await supabaseAdmin.from('gates').select('id, name, type').in('id', gateIds)
+      : { data: [], error: null }
+
+    if (gatesError) {
+      throw gatesError
+    }
+
+    let profilesMap = new Map<string, { apartment_unit: string | null }>()
+
+    if (profile.role === 'admin') {
+      const userIds = Array.from(
+        new Set((logs ?? []).map((log: any) => log.user_id).filter(Boolean))
+      )
+
+      if (userIds.length) {
+        const { data: profilesData, error: profilesError } = await supabaseAdmin
+          .from('profiles')
+          .select('id, apartment_unit')
+          .in('id', userIds)
+
+        if (profilesError) {
+          throw profilesError
+        }
+
+        profilesData?.forEach((p: any) => {
+          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null })
+        })
+      }
+    } else {
+      profilesMap.set(user.id, { apartment_unit: profile.apartment_unit ?? null })
+    }
+
+    const gatesMap = new Map<number, { name?: string; type?: string }>()
+    gatesData?.forEach((g: any) => {
+      gatesMap.set(g.id, { name: g.name, type: g.type })
+    })
+
+    const records = (logs ?? []).map((log: any) => {
+      const gateInfo = gatesMap.get(log.gate_id) || {}
+      const profileInfo = profilesMap.get(log.user_id) || { apartment_unit: null }
+
+      return {
       id: log.id,
       gate_id: log.gate_id,
-      gate_name: log.gates?.name || (log.gate_id ? `Portón ${log.gate_id}` : 'Portón'),
-      gate_type: log.gates?.type || 'ENTRADA',
+      gate_name: gateInfo.name || (log.gate_id ? `Portón ${log.gate_id}` : 'Portón'),
+      gate_type: gateInfo.type || 'ENTRADA',
       user_id: log.user_id,
       user_email: null,
-      apartment_unit: log.profiles?.apartment_unit ?? null,
+      apartment_unit: profileInfo.apartment_unit ?? null,
       action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
       timestamp: log.timestamp,
       method: 'APP',
       status: log.status
-    }))
+    }
+    })
 
     reply.send({
       records,
