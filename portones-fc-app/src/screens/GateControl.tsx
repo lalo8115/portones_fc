@@ -6,6 +6,7 @@ import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, CreditCard,
 import { useAuth } from '../contexts/AuthContext'
 import QRCode from 'react-native-qrcode-svg'
 import { CameraView, useCameraPermissions } from 'expo-camera'
+import { AnimatedBackground } from '../components/AnimatedBackground'
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -213,15 +214,25 @@ const GateCard: React.FC<GateCardProps> = ({
           <Button
             width='100%'
             size='$3'
-            theme='green'
+            backgroundColor='white'
+            borderWidth={1}
+            borderColor='rgba(54, 158, 255, 0.35)'
             disabled={isRevoked || buttonState !== 'idle'}
             onPress={() => openMutation.mutate()}
           >
             {buttonState === 'sending' && (
-              <Spinner size='small' color='white' />
+              <Spinner size='small' color='#369eff' />
             )}
-            {buttonState === 'idle' && 'Abrir'}
-            {buttonState === 'counting' && `Cerrando en ${countdown}...`}
+            {buttonState === 'idle' && (
+              <Text color='#369eff' fontWeight='700'>
+                Abrir
+              </Text>
+            )}
+            {buttonState === 'counting' && (
+              <Text color='#369eff' fontWeight='700'>
+                {`Cerrando en ${countdown}...`}
+              </Text>
+            )}
           </Button>
         </XStack>
       </YStack>
@@ -372,16 +383,37 @@ export const GateControl: React.FC<GateControlProps> = ({
   // Componente para pantalla principal de portones
   const GatesScreen = () => (
     <YStack padding='$4' space='$4'>
-      <YStack space='$2'>
-        <Text fontSize='$6' fontWeight='bold'>
-          Control de Portones
-        </Text>
-        {profile?.colonia?.nombre && (
-          <Text fontSize='$3' color='$gray11'>
-            {profile.colonia.nombre}
+      <Card
+        elevate
+        bordered
+        padding='$4'
+        backgroundColor='rgba(0,0,0,0.35)'
+        borderColor='rgba(255,255,255,0.14)'
+      >
+        <YStack space='$2'>
+          <Text fontSize='$5' fontWeight='800' color='white'>
+            {user?.email}
           </Text>
-        )}
-      </YStack>
+
+          {profile?.colonia?.nombre && (
+            <XStack alignItems='center' gap='$2'>
+              <MapPin size={16} color='rgba(120, 210, 255, 0.95)' />
+              <Text fontSize='$3.5' color='rgba(180, 235, 255, 0.95)' fontWeight='700'>
+                {profile.colonia.nombre}
+              </Text>
+            </XStack>
+          )}
+
+          {profile?.apartment_unit && (
+            <XStack alignItems='center' gap='$2'>
+              <Home size={16} color='rgba(255,255,255,0.92)' />
+              <Text fontSize='$3.5' color='rgba(255,255,255,0.92)'>
+                {profile.apartment_unit}
+              </Text>
+            </XStack>
+          )}
+        </YStack>
+      </Card>
 
       {isLoading ? (
         <YStack flex={1} justifyContent='center' alignItems='center' paddingVertical='$10'>
@@ -695,56 +727,96 @@ export const GateControl: React.FC<GateControlProps> = ({
   )
 
   return (
-    <YStack flex={1} backgroundColor='$background'>
-      {/* Header */}
-      <XStack
-        justifyContent='space-between'
-        alignItems='center'
-        padding='$4'
-        paddingTop='$8'
-        backgroundColor='$background'
-        borderBottomWidth={1}
-        borderBottomColor='$gray5'
-      >
-      <YStack space='$1' flex={1}>
-        <Text fontSize='$4' fontWeight='600' color='$color'>
-          {user?.email}
-        </Text>
-
-        {profile?.colonia?.nombre && (
-          <XStack alignItems="center" gap="$1">
-            <MapPin size={15} color="$blue10"/>
-            <Text fontSize="$3" color="$blue10" fontWeight="600">
-              {profile.colonia.nombre}
-            </Text>
-          </XStack>
-        )}
-
-        {profile?.apartment_unit && (
-          <XStack alignItems="center" gap="$1.5">
-            <Home size={14} color="$color" />
-            <Text fontSize="$3" color="$color">
-              {profile.apartment_unit}
-            </Text>
-          </XStack>
-        )}
-    </YStack>
-        <XStack space='$2'>
-          <Button
-            size='$3'
-            icon={<RefreshCw size={18} />}
-            onPress={() => refetchGates()}
-            disabled={isLoading}
-            chromeless
+    <YStack flex={1} backgroundColor={currentScreen === 1 ? '#000' : '$background'}>
+      {/* Header (solo estilo especial en la pantalla central de Portones) */}
+      {currentScreen === 1 ? (
+        <View style={{ position: 'relative', overflow: 'hidden' }}>
+          <AnimatedBackground
+            bleed={0}
+            showAurora={false}
+            showOverlayGradient
+            baseColor='#000'
+            opacity={0}
           />
-          <Button
-            size='$3'
-            icon={<LogOut size={18} />}
-            onPress={() => signOut()}
-            chromeless
-          />
+          <XStack
+            justifyContent='space-between'
+            alignItems='center'
+            padding='$4'
+            paddingTop='$8'
+            backgroundColor='transparent'
+            borderBottomWidth={1}
+            borderBottomColor='rgba(255,255,255,0.10)'
+          >
+            <Text fontSize='$7' fontWeight='900' color='white'>
+              Porton Inteligente
+            </Text>
+            <XStack space='$2'>
+              <Button
+                size='$3'
+                icon={<RefreshCw size={18} color='white' />}
+                onPress={() => refetchGates()}
+                disabled={isLoading}
+                chromeless
+              />
+              <Button
+                size='$3'
+                icon={<LogOut size={18} color='white' />}
+                onPress={() => signOut()}
+                chromeless
+              />
+            </XStack>
+          </XStack>
+        </View>
+      ) : (
+        <XStack
+          justifyContent='space-between'
+          alignItems='center'
+          padding='$4'
+          paddingTop='$8'
+          backgroundColor='$background'
+          borderBottomWidth={1}
+          borderBottomColor='$gray5'
+        >
+          <YStack space='$1' flex={1}>
+            <Text fontSize='$4' fontWeight='600' color='$color'>
+              {user?.email}
+            </Text>
+
+            {profile?.colonia?.nombre && (
+              <XStack alignItems='center' gap='$1'>
+                <MapPin size={15} color='$blue10' />
+                <Text fontSize='$3' color='$blue10' fontWeight='600'>
+                  {profile.colonia.nombre}
+                </Text>
+              </XStack>
+            )}
+
+            {profile?.apartment_unit && (
+              <XStack alignItems='center' gap='$1.5'>
+                <Home size={14} color='$color' />
+                <Text fontSize='$3' color='$color'>
+                  {profile.apartment_unit}
+                </Text>
+              </XStack>
+            )}
+          </YStack>
+          <XStack space='$2'>
+            <Button
+              size='$3'
+              icon={<RefreshCw size={18} />}
+              onPress={() => refetchGates()}
+              disabled={isLoading}
+              chromeless
+            />
+            <Button
+              size='$3'
+              icon={<LogOut size={18} />}
+              onPress={() => signOut()}
+              chromeless
+            />
+          </XStack>
         </XStack>
-      </XStack>
+      )}
 
       <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         {/* Main Content */}
@@ -788,7 +860,9 @@ export const GateControl: React.FC<GateControlProps> = ({
 
                 {/* Pantalla 1: Control de Portones (Principal) */}
                 <View style={{ width: screenWidth, flex: 1 }}>
-                  <GatesScreen />
+                  <View style={{ flex: 1 }}>
+                    <GatesScreen />
+                  </View>
                 </View>
 
                 {/* Pantalla 2: QR y Escaneo */}
@@ -805,7 +879,8 @@ export const GateControl: React.FC<GateControlProps> = ({
               space='$2' 
               padding='$4'
               borderTopWidth={1}
-              borderTopColor='$gray5'
+              borderTopColor={currentScreen === 1 ? 'rgba(255,255,255,0.10)' : '$gray5'}
+              backgroundColor={currentScreen === 1 ? '#000' : 'transparent'}
             >
               <YStack 
                 width={8} 
@@ -833,26 +908,43 @@ export const GateControl: React.FC<GateControlProps> = ({
               alignItems='center' 
               padding='$3'
               space='$2'
+              backgroundColor={currentScreen === 1 ? '#000' : 'transparent'}
             >
               <Button
                 size='$3'
-                theme='gray'
                 disabled={currentScreen === 0}
                 onPress={() => setCurrentScreen(Math.max(0, currentScreen - 1))}
                 flex={1}
-                icon={<ChevronLeft size={18} />}
+                backgroundColor='#151515'
+                borderWidth={1}
+                borderColor='transparent'
+                pressStyle={{ backgroundColor: '#1d1d1d', borderColor: 'transparent' }}
+                hoverStyle={{ backgroundColor: '#1a1a1a', borderColor: 'transparent' }}
+                focusStyle={{ borderColor: 'transparent' }}
+                disabledStyle={{ opacity: 0.45, backgroundColor: '#151515', borderColor: 'transparent' }}
+                icon={<ChevronLeft size={18} color='#369eff' />}
               >
-                {currentScreen === 2 ? 'Portones' : 'Pagos'}
+                <Text color='#369eff' fontWeight='700'>
+                  {currentScreen === 2 ? 'Portones' : 'Pagos'}
+                </Text>
               </Button>
               <Button
                 size='$3'
-                theme='gray'
                 disabled={currentScreen === 2}
                 onPress={() => setCurrentScreen(Math.min(2, currentScreen + 1))}
                 flex={1}
-                icon={<ChevronRight size={18} />}
+                backgroundColor='#151515'
+                borderWidth={1}
+                borderColor='transparent'
+                pressStyle={{ backgroundColor: '#1d1d1d', borderColor: 'transparent' }}
+                hoverStyle={{ backgroundColor: '#1a1a1a', borderColor: 'transparent' }}
+                focusStyle={{ borderColor: 'transparent' }}
+                disabledStyle={{ opacity: 0.45, backgroundColor: '#151515', borderColor: 'transparent' }}
+                icon={<ChevronRight size={18} color='#369eff' />}
               >
-                {currentScreen === 0 ? 'Portones' : 'QR'}
+                <Text color='#369eff' fontWeight='700'>
+                  {currentScreen === 0 ? 'Portones' : 'QR'}
+                </Text>
               </Button>
             </XStack>
           </YStack>
