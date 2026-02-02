@@ -410,6 +410,9 @@ fastify.post('/payment/maintenance', async (request, reply) => {
 
     const charge = await openpayRequest('POST', '/charges', chargePayload)
 
+    // Log para debugging
+    fastify.log.info({ charge }, 'Respuesta de Openpay al crear charge')
+
     // Guardar el pago en la base de datos
     const currentDate = new Date()
     const { error: paymentError } = await supabaseAdmin
@@ -431,14 +434,19 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       fastify.log.error({ error: paymentError }, 'Error al guardar el pago en la base de datos')
     }
 
-    // Actualizar perfil: resetear adeudo_meses a 0 y cambiar role a 'resident'
-    if (charge.status === 'completed') {
+    // Actualizar perfil: resetear adeudo_meses a 0 y cambiar role a 'user'
+    // Openpay puede devolver 'completed' o 'success', vamos a aceptar ambos
+    const chargeSuccessful = charge.status === 'completed' || charge.status === 'success' || !charge.error
+    
+    fastify.log.info('Verificando si pago fue exitoso. Status: ' + charge.status + ', Successful: ' + chargeSuccessful)
+    
+    if (chargeSuccessful) {
       fastify.log.info('Pago completado para usuario ' + user.id + '. Actualizando perfil...')
       const { data: updateData, error: updateError } = await supabaseAdmin
         .from('profiles')
         .update({
           adeudo_meses: 0,
-          role: 'resident',
+          role: 'user',
           updated_at: currentDate.toISOString()
         })
         .eq('id', user.id)
@@ -447,10 +455,10 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       if (updateError) {
         fastify.log.error({ error: updateError }, 'Error al actualizar el perfil después del pago')
       } else {
-        fastify.log.info('Perfil actualizado exitosamente para usuario ' + user.id)
+        fastify.log.info({ data: updateData }, 'Perfil actualizado exitosamente para usuario ' + user.id)
       }
     } else {
-      fastify.log.warn('Pago pendiente para usuario ' + user.id + ' (status: ' + charge.status + ')')
+      fastify.log.warn('Pago pendiente o fallido para usuario ' + user.id + ' (status: ' + charge.status + ')')
     }
 
     reply.send({
