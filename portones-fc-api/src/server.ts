@@ -1356,22 +1356,30 @@ fastify.get('/forum/posts', async (request, reply) => {
     
     for (const authorId of uniqueAuthorIds) {
       const { data: userData } = await supabaseAdmin.auth.admin.getUserById(authorId)
-      if (userData?.user?.email) {
-        authorNames[authorId] = userData.user.email.split('@')[0]
+      const email = userData?.user?.email
+      if (email) {
+        authorNames[authorId] = String(email.split('@')[0] || email)
       }
     }
 
     // Format response
-    const formattedPosts = posts?.map(post => ({
+    const formattedPosts = posts?.map(post => {
+      const profileData = (post as { profiles?: { apartment_unit?: string } | { apartment_unit?: string }[] }).profiles
+      const authorUnit = Array.isArray(profileData)
+        ? profileData[0]?.apartment_unit
+        : profileData?.apartment_unit
+
+      return {
       id: post.id,
       title: post.title,
       content: post.content,
       category: post.category,
       created_at: post.created_at,
       author_name: authorNames[post.author_id] || 'Usuario',
-      author_unit: Array.isArray(post.profiles) ? post.profiles[0]?.apartment_unit : post.profiles?.apartment_unit,
+      author_unit: authorUnit,
       replies_count: 0 // For future implementation
-    })) || []
+    }
+    }) || []
 
     reply.send(formattedPosts)
   } catch (error) {
