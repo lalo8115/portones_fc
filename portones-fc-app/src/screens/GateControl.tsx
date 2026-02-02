@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react'
 import { ScrollView, View, Animated, PanResponder, Dimensions } from 'react-native'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, YStack, Text, Spinner, Circle, XStack, Card } from 'tamagui'
-import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, CreditCard } from '@tamagui/lucide-icons'
+import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, CreditCard, Home, MapPin} from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
 import QRCode from 'react-native-qrcode-svg'
 import { CameraView, useCameraPermissions } from 'expo-camera'
@@ -688,7 +688,7 @@ export const GateControl: React.FC<GateControlProps> = ({
           theme='purple'
           onPress={handleStartScanDev}
         >
-          Escanear QR (dev) → Abrir Visitante Entrada
+          Escanear QR → Abrir Visitante Entrada
         </Button>
       )}
     </YStack>
@@ -706,21 +706,29 @@ export const GateControl: React.FC<GateControlProps> = ({
         borderBottomWidth={1}
         borderBottomColor='$gray5'
       >
-        <YStack space='$1' flex={1}>
-          <Text fontSize='$4' fontWeight='600' color='$color'>
-            {user?.email}
-          </Text>
-          {profile?.apartment_unit && (
-            <Text fontSize='$3' color='$gray11'>
-              {profile.apartment_unit}
-            </Text>
-          )}
-          {profile?.colonia?.nombre && (
-            <Text fontSize='$2' color='$blue10' fontWeight='600'>
+      <YStack space='$1' flex={1}>
+        <Text fontSize='$4' fontWeight='600' color='$color'>
+          {user?.email}
+        </Text>
+
+        {profile?.colonia?.nombre && (
+          <XStack alignItems="center" gap="$1">
+            <MapPin size={15} color="$blue10"/>
+            <Text fontSize="$3" color="$blue10" fontWeight="600">
               {profile.colonia.nombre}
             </Text>
-          )}
-        </YStack>
+          </XStack>
+        )}
+
+        {profile?.apartment_unit && (
+          <XStack alignItems="center" gap="$1.5">
+            <Home size={14} color="$color" />
+            <Text fontSize="$3" color="$color">
+              {profile.apartment_unit}
+            </Text>
+          </XStack>
+        )}
+    </YStack>
         <XStack space='$2'>
           <Button
             size='$3'
