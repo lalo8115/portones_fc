@@ -214,7 +214,7 @@ fastify.get('/access/history', async (request, reply) => {
 
     let query = supabaseAdmin
       .from('access_logs')
-      .select('id, user_id, action, status, timestamp, gate_id', {
+      .select('id, user_id, action, status, method, timestamp, gate_id', {
         count: 'exact'
       })
       .order('timestamp', { ascending: false })
@@ -311,7 +311,7 @@ fastify.get('/access/history', async (request, reply) => {
       apartment_unit: profileInfo.apartment_unit ?? null,
       action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
       timestamp: log.timestamp,
-      method: 'APP',
+      method: log.method || 'APP',
       status: log.status
     }
     })
@@ -728,8 +728,11 @@ fastify.get('/profile', async (request, reply) => {
       .single()
 
     // If profile doesn't exist, create it with 'user' role
-    if (profileError && profileError.code === 'PGRST116') {
-      // PGRST116 = no rows returned
+    if (!profile) {
+      if (profileError && profileError.code !== 'PGRST116') {
+        fastify.log.warn({ error: profileError }, 'Profile lookup returned error, attempting auto-create')
+      }
+
       fastify.log.info(`Profile for user ${user.id} not found, creating one`)
       const { data: newProfile, error: createError } = await supabaseAdmin
         .from('profiles')
@@ -752,13 +755,6 @@ fastify.get('/profile', async (request, reply) => {
       }
 
       profile = newProfile
-    } else if (profileError || !profile) {
-      fastify.log.error({ error: profileError }, 'Profile not found')
-      reply.status(404).send({
-        error: 'Not Found',
-        message: 'User profile not found'
-      })
-      return
     }
 
     reply.send({
@@ -887,6 +883,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_REVOKED',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -911,6 +908,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -928,6 +926,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -946,6 +945,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -991,6 +991,7 @@ fastify.post('/gate/open', async (request, reply) => {
       user_id: user.id,
       action: 'OPEN_GATE',
       status: 'SUCCESS',
+      method: 'APP',
       gate_id: gateId,
       ip_address: request.ip
     })
@@ -1059,6 +1060,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_REVOKED',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1083,6 +1085,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1100,6 +1103,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1118,6 +1122,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -1163,6 +1168,7 @@ fastify.post('/gate/close', async (request, reply) => {
       user_id: user.id,
       action: 'CLOSE_GATE',
       status: 'SUCCESS',
+      method: 'APP',
       gate_id: gateId,
       ip_address: request.ip
     })
