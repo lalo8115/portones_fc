@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS colonias (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   nombre TEXT NOT NULL UNIQUE,
   maintenance_monthly_amount DECIMAL(10, 2) DEFAULT 0.00,
+  streets TEXT[] DEFAULT ARRAY[]::TEXT[],
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -78,6 +79,7 @@ COMMENT ON TABLE colonias IS 'Residential communities/colonias';
 COMMENT ON COLUMN colonias.nombre IS 'Display name of the colonia';
 COMMENT ON COLUMN colonias.id IS 'UUID serves as both primary key and join code for residents';
 COMMENT ON COLUMN colonias.maintenance_monthly_amount IS 'Monthly maintenance fee in MXN';
+COMMENT ON COLUMN colonias.streets IS 'Array of street names in the colonia';
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_colonias_nombre ON colonias(nombre);
@@ -133,6 +135,80 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_profiles_colonia_id ON profiles(colonia_id);
+
+-- ==========================================
+-- ENSURE STREETS COLUMN EXISTS IN COLONIAS
+-- ==========================================
+ALTER TABLE colonias
+  ADD COLUMN IF NOT EXISTS streets TEXT[] DEFAULT ARRAY[]::TEXT[];
+
+-- ==========================================
+-- CREATE HOUSES TABLE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS houses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  colonia_id UUID NOT NULL REFERENCES colonias(id) ON DELETE CASCADE,
+  street TEXT NOT NULL,
+  external_number TEXT NOT NULL,
+  number_of_people SMALLINT NOT NULL DEFAULT 1 CHECK (number_of_people > 0),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add comments
+COMMENT ON TABLE houses IS 'Houses/units in colonias';
+COMMENT ON COLUMN houses.id IS 'Unique house identifier';
+COMMENT ON COLUMN houses.colonia_id IS 'References colonias table';
+COMMENT ON COLUMN houses.street IS 'Street name where the house is located';
+COMMENT ON COLUMN houses.external_number IS 'External house/unit number';
+COMMENT ON COLUMN houses.number_of_people IS 'Number of people living in the house';
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_houses_colonia_id ON houses(colonia_id);
+CREATE INDEX IF NOT EXISTS idx_houses_street ON houses(street);
+CREATE INDEX IF NOT EXISTS idx_houses_colonia_street ON houses(colonia_id, street);
+
+-- RLS for houses
+ALTER TABLE houses ENABLE ROW LEVEL SECURITY;
+
+-- Drop policies if exist (idempotence)
+DROP POLICY IF EXISTS "Users can view houses from their colonia" ON houses;
+DROP POLICY IF EXISTS "Admins can manage houses" ON houses;
+DROP POLICY IF EXISTS "Service role full access houses" ON houses;
+
+-- Users can view houses from their colonia
+CREATE POLICY "Users can view houses from their colonia"
+  ON houses FOR SELECT
+  USING (
+    colonia_id IN (
+      SELECT colonia_id FROM profiles WHERE id = auth.uid()
+    )
+  );
+
+-- Admins can manage houses
+CREATE POLICY "Admins can manage houses"
+  ON houses FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Service role (backend) can do everything
+CREATE POLICY "Service role full access houses"
+  ON houses FOR ALL
+  USING (auth.role() = 'service_role');
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS houses_set_updated_at ON houses;
+CREATE TRIGGER houses_set_updated_at
+  BEFORE UPDATE ON houses
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- ==========================================
 -- CREATE GATES TABLE (Portones)

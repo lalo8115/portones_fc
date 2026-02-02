@@ -187,6 +187,50 @@ fastify.get('/gates', async (request, reply) => {
   }
 })
 
+// Get colonia details (streets)
+fastify.get<{ Params: { coloniaId: string } }>('/colonias/:coloniaId', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { coloniaId } = request.params
+
+    if (!coloniaId || !coloniaId.trim()) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El ID de la colonia es requerido'
+      })
+      return
+    }
+
+    // Fetch colonia details including streets
+    const { data: colonia, error: coloniaError } = await supabaseAdmin
+      .from('colonias')
+      .select('id, nombre, streets')
+      .eq('id', coloniaId.trim())
+      .single()
+
+    if (coloniaError || !colonia) {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Colonia no encontrada'
+      })
+      return
+    }
+
+    // Return colonia with streets
+    reply.send({
+      id: colonia.id,
+      nombre: colonia.nombre,
+      streets: colonia.streets || []
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /colonias/:coloniaId')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to get colonia details'
+    })
+  }
+})
+
 // Access history route
 fastify.get('/access/history', async (request, reply) => {
   try {

@@ -42,6 +42,7 @@ interface AuthContextType {
   loading: boolean
   refreshProfile: () => Promise<void>
   getToken: () => Promise<string | null>
+  getColoniaStreets: (coloniaId: string) => Promise<string[]>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -513,6 +514,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return session.access_token
   }
 
+  const getColoniaStreets = async (coloniaId: string): Promise<string[]> => {
+    if (!session?.access_token) {
+      throw new Error('Sesión no encontrada, vuelve a iniciar sesión')
+    }
+
+    const response = await fetch(`${apiUrl}/colonias/${coloniaId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null)
+      throw new Error(errorBody?.message || 'No se pudo obtener las calles de la colonia')
+    }
+
+    const data = await response.json()
+    return data.streets || []
+  }
+
   const value = {
     session,
     user: session?.user ?? null,
@@ -525,7 +548,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     signOut,
     loading,
     refreshProfile,
-    getToken
+    getToken,
+    getColoniaStreets
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
