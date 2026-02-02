@@ -484,9 +484,11 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       .single() as any
 
     if (profileError) {
+      fastify.log.error({ error: profileError, userId: user.id }, 'Error obteniendo perfil en /payment/maintenance')
       reply.status(400).send({
         error: 'Bad Request',
-        message: 'No se pudo obtener el perfil del usuario'
+        message: 'No se pudo obtener el perfil del usuario',
+        details: profileError.message || profileError.code
       })
       return
     }
@@ -1282,6 +1284,214 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
     reply.status(500).send({
       error: 'Server Error',
       message: 'Failed to update apartment unit'
+    })
+  }
+})
+
+// Get forum posts by category
+fastify.get('/forum/posts', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { category } = request.query as { category?: string }
+
+    // Validate category
+    const validCategories = ['events', 'messages', 'requests']
+    if (!category || !validCategories.includes(category)) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Invalid or missing category parameter. Must be: events, messages, or requests'
+      })
+      return
+    }
+
+    // Get user profile to verify colonia
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile || !profile.colonia_id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Debes estar asignado a una colonia para ver el foro'
+      })
+      return
+    }
+
+    // Get posts from the same colonia
+    const { data: posts, error: postsError } = await supabaseAdmin
+      .from('forum_posts')
+      .select(`
+        id,
+        title,
+        content,
+        category,
+        created_at,
+        author_id,
+        profiles:author_id (
+          id,
+          apartment_unit
+        )
+      `)
+      .eq('colonia_id', profile.colonia_id)
+      .eq('category', category)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (postsError) {
+      fastify.log.error({ error: postsError }, 'Error fetching forum posts')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'No se pudieron obtener las publicaciones'
+      })
+      return
+    }
+
+    // Get author names from auth.users
+    const authorIds = posts?.map(p => p.author_id) || []
+    const uniqueAuthorIds = [...new Set(authorIds)]
+
+    const authorNames: Record<string, string> = {}
+    
+    for (const authorId of uniqueAuthorIds) {
+      const { data: userData } = await supabaseAdmin.auth.admin.getUserById(authorId)
+      const email = userData?.user?.email
+      if (email) {
+        authorNames[authorId] = String(email.split('@')[0] || email)
+      }
+    }
+
+    // Format response
+    const formattedPosts = posts?.map(post => {
+      const profileData = (post as { profiles?: { apartment_unit?: string } | { apartment_unit?: string }[] }).profiles
+      const authorUnit = Array.isArray(profileData)
+        ? profileData[0]?.apartment_unit
+        : profileData?.apartment_unit
+
+      return {
+      id: post.id,
+      title: post.title,
+      content: post.content,
+      category: post.category,
+      created_at: post.created_at,
+      author_name: authorNames[post.author_id] || 'Usuario',
+      author_unit: authorUnit,
+      replies_count: 0 // For future implementation
+    }
+    }) || []
+
+    reply.send(formattedPosts)
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /forum/posts GET')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to fetch forum posts'
+    })
+  }
+})
+
+// Create new forum post
+fastify.post('/forum/posts', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { title, content, category } = request.body as {
+      title?: string
+      content?: string
+      category?: string
+    }
+
+    // Validate input
+    if (!title || !content || !category) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Faltan campos requeridos: title, content, category'
+      })
+      return
+    }
+
+    const validCategories = ['events', 'messages', 'requests']
+    if (!validCategories.includes(category)) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Categoría inválida. Debe ser: events, messages, o requests'
+      })
+      return
+    }
+
+    // Validate length
+    if (title.length > 100) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El título no puede exceder 100 caracteres'
+      })
+      return
+    }
+
+    if (content.length > 1000) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El contenido no puede exceder 1000 caracteres'
+      })
+      return
+    }
+
+    // Get user profile to verify colonia
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, apartment_unit')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile || !profile.colonia_id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Debes estar asignado a una colonia para publicar en el foro'
+      })
+      return
+    }
+
+    // Create post
+    const { data: newPost, error: insertError } = await supabaseAdmin
+      .from('forum_posts')
+      .insert({
+        title: title.trim(),
+        content: content.trim(),
+        category,
+        colonia_id: profile.colonia_id,
+        author_id: user.id
+      })
+      .select('id, title, content, category, created_at, author_id')
+      .single()
+
+    if (insertError || !newPost) {
+      fastify.log.error({ error: insertError }, 'Error creating forum post')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'No se pudo crear la publicación'
+      })
+      return
+    }
+
+    // Get author name
+    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(user.id)
+    const authorName = userData?.user?.email?.split('@')[0] || 'Usuario'
+
+    reply.status(201).send({
+      id: newPost.id,
+      title: newPost.title,
+      content: newPost.content,
+      category: newPost.category,
+      created_at: newPost.created_at,
+      author_name: authorName,
+      author_unit: profile.apartment_unit ?? undefined,
+      replies_count: 0
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /forum/posts POST')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to create forum post'
     })
   }
 })

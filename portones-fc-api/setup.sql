@@ -450,3 +450,82 @@ CREATE TRIGGER gates_set_updated_at
 -- SELECT * FROM profiles;
 -- SELECT * FROM access_logs;
 -- SELECT * FROM information_schema.tables WHERE table_schema = 'public';
+-- ==========================================
+-- 8. FORUM POSTS TABLE
+-- ==========================================
+-- Tabla para publicaciones del foro comunitario
+
+CREATE TABLE IF NOT EXISTS forum_posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL CHECK (char_length(title) <= 100),
+  content TEXT NOT NULL CHECK (char_length(content) <= 1000),
+  category TEXT NOT NULL CHECK (category IN ('events', 'messages', 'requests')),
+  colonia_id UUID NOT NULL REFERENCES colonias(id) ON DELETE CASCADE,
+  author_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add comments
+COMMENT ON TABLE forum_posts IS 'Community forum posts for colonias';
+COMMENT ON COLUMN forum_posts.title IS 'Post title, max 100 characters';
+COMMENT ON COLUMN forum_posts.content IS 'Post content, max 1000 characters';
+COMMENT ON COLUMN forum_posts.category IS 'Post category: events, messages, or requests';
+COMMENT ON COLUMN forum_posts.colonia_id IS 'References colonias table';
+COMMENT ON COLUMN forum_posts.author_id IS 'References profiles table';
+
+-- Índices para mejorar el rendimiento
+CREATE INDEX IF NOT EXISTS idx_forum_posts_colonia_id ON forum_posts(colonia_id);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_category ON forum_posts(category);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_created_at ON forum_posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_author_id ON forum_posts(author_id);
+
+-- Trigger para actualizar updated_at
+CREATE TRIGGER forum_posts_set_updated_at
+  BEFORE UPDATE ON public.forum_posts
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ==========================================
+-- 9. ROW LEVEL SECURITY FOR FORUM_POSTS
+-- ==========================================
+ALTER TABLE forum_posts ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can view posts from their own colonia
+CREATE POLICY "Users can view posts from their colonia"
+ON forum_posts
+FOR SELECT
+USING (
+  colonia_id IN (
+    SELECT colonia_id FROM profiles WHERE id = auth.uid()
+  )
+);
+
+-- Policy: Users can create posts in their own colonia
+CREATE POLICY "Users can create posts in their colonia"
+ON forum_posts
+FOR INSERT
+WITH CHECK (
+  colonia_id IN (
+    SELECT colonia_id FROM profiles WHERE id = auth.uid()
+  )
+  AND author_id = auth.uid()
+);
+
+-- Policy: Users can update their own posts
+CREATE POLICY "Users can update their own posts"
+ON forum_posts
+FOR UPDATE
+USING (author_id = auth.uid())
+WITH CHECK (author_id = auth.uid());
+
+-- Policy: Users can delete their own posts or admins can delete any post
+CREATE POLICY "Users can delete their own posts"
+ON forum_posts
+FOR DELETE
+USING (
+  author_id = auth.uid()
+  OR EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE id = auth.uid() AND role = 'admin'
+  )
+);

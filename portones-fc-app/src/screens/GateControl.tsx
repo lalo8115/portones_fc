@@ -8,6 +8,7 @@ import QRCode from 'react-native-qrcode-svg'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { AccessHistoryScreen } from './AccessHistoryScreen'
+import { CommunityForumScreen } from './CommunityForumScreen'
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -249,6 +250,7 @@ export const GateControl: React.FC<GateControlProps> = ({
 }) => {
   const { signOut, user, profile } = useAuth()
   const [showAccessHistory, setShowAccessHistory] = useState(false)
+  const [showCommunityForum, setShowCommunityForum] = useState(false)
   const [qrValue, setQrValue] = useState<string | null>(null)
   const [qrExpiresAt, setQrExpiresAt] = useState<Date | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -523,9 +525,9 @@ export const GateControl: React.FC<GateControlProps> = ({
       },
       {
         id: 'colonia',
-        title: 'Información de Colonia',
-        description: 'Detalles y contacto de tu colonia',
-        icon: '🏘️',
+        title: 'Foro Comunitario',
+        description: 'Eventos, mensajes y peticiones de la colonia',
+        icon: '💬',
         color: '$purple10',
       },
       {
@@ -735,6 +737,8 @@ export const GateControl: React.FC<GateControlProps> = ({
                   setSelectedOption('payment')
                 } else if (option.id === 'history') {
                   setShowAccessHistory(true)
+                } else if (option.id === 'colonia') {
+                  setShowCommunityForum(true)
                 } else {
                   // Aquí puedes agregar la lógica para otras opciones
                   Alert.alert(
@@ -853,6 +857,16 @@ export const GateControl: React.FC<GateControlProps> = ({
       <AccessHistoryScreen
         apiUrl={apiUrl}
         onBack={() => setShowAccessHistory(false)}
+      />
+    )
+  }
+
+  if (showCommunityForum) {
+    return (
+      <CommunityForumScreen
+        apiUrl={apiUrl}
+        authToken={authToken}
+        onBack={() => setShowCommunityForum(false)}
       />
     )
   }
