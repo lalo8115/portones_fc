@@ -130,7 +130,7 @@ const GateCard: React.FC<GateCardProps> = ({
   onSuccess
 }) => {
   const { profile } = useAuth()
-  const isRevoked = profile?.role === 'revoked' || (profile?.adeudo_meses ?? 0) > 0
+  const isRevoked = profile?.role === 'revoked' || (profile?.house?.adeudos_months ?? 0) > 0
 
   const effectiveStatus = status === 'UNKNOWN' ? 'CLOSED' : status
   const [buttonState, setButtonState] = useState<
@@ -411,11 +411,11 @@ export const GateControl: React.FC<GateControlProps> = ({
             </XStack>
           )}
 
-          {profile?.apartment_unit && (
+          {profile?.house && (
             <XStack alignItems='center' gap='$2'>
               <Home size={16} color='rgba(255,255,255,0.92)' />
               <Text fontSize='$3.5' color='rgba(255,255,255,0.92)'>
-                {profile.apartment_unit}
+                {profile.house.street} {profile.house.external_number}
               </Text>
             </XStack>
           )}
@@ -683,13 +683,13 @@ export const GateControl: React.FC<GateControlProps> = ({
                     {profile.colonia.nombre}
                   </Text>
                 </YStack>
-                {profile?.apartment_unit && (
+                {profile?.house && (
                   <YStack space='$1' alignItems='flex-end'>
                     <Text fontSize='$2.5' color='$gray11'>
-                      Departamento
+                      Domicilio
                     </Text>
                     <Text fontSize='$3.5' fontWeight='600'>
-                      {profile.apartment_unit}
+                      {profile.house.street} {profile.house.external_number}
                     </Text>
                   </YStack>
                 )}
@@ -947,11 +947,11 @@ export const GateControl: React.FC<GateControlProps> = ({
               </XStack>
             )}
 
-            {profile?.apartment_unit && (
+            {profile?.house && (
               <XStack alignItems='center' gap='$1.5'>
                 <Home size={14} color='$color' />
                 <Text fontSize='$3' color='$color'>
-                  {profile.apartment_unit}
+                  {profile.house.street} {profile.house.external_number}
                 </Text>
               </XStack>
             )}

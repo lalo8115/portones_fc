@@ -20,7 +20,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'revoked')),
-  house_id UUID REFERENCES houses(id) ON DELETE SET NULL,
+  house_id UUID,
   colonia_id UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -62,14 +62,6 @@ CREATE INDEX IF NOT EXISTS idx_access_logs_user_id ON access_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_logs_timestamp ON access_logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
 CREATE INDEX IF NOT EXISTS idx_profiles_house_id ON profiles(house_id);
-
--- Update profiles table for existing installations (idempotent)
-ALTER TABLE profiles
-  ADD COLUMN IF NOT EXISTS house_id UUID REFERENCES houses(id) ON DELETE SET NULL;
-
--- Drop old apartment_unit column if it exists (for clean migrations)
-ALTER TABLE profiles
-  DROP COLUMN IF EXISTS apartment_unit;
 
 -- ==========================================
 -- CREATE COLONIAS TABLE
@@ -220,6 +212,18 @@ DROP TRIGGER IF EXISTS houses_set_updated_at ON houses;
 CREATE TRIGGER houses_set_updated_at
   BEFORE UPDATE ON houses
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Add foreign key from profiles to houses (after houses table is created)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_profiles_house'
+    ) THEN
+        ALTER TABLE profiles
+            ADD CONSTRAINT fk_profiles_house
+            FOREIGN KEY (house_id) REFERENCES houses(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 -- ==========================================
 -- CREATE GATES TABLE (Portones)
