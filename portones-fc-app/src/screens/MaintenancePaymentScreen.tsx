@@ -8,19 +8,21 @@ interface MaintenancePaymentScreenProps {
   apiUrl: string
   authToken: string
   onBack: () => void
+  onSuccess?: () => void
 }
 
 interface PaymentStatus {
-  status: 'idle' | 'loading' | 'success' | 'error'
+  status: 'idle' | 'loading' | 'error' | 'redirecting'
   message: string
 }
 
 export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> = ({
   apiUrl,
   authToken,
-  onBack
+  onBack,
+  onSuccess
 }) => {
-  const { user, profile } = useAuth()
+  const { user, profile, refreshProfile } = useAuth()
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>({
     status: 'idle',
     message: ''
@@ -91,6 +93,63 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
       console.error('Error generating device session:', error)
     }
     return ''
+  }
+
+  // Verificar que el perfil se actualizó en la base de datos
+  const verifyProfileUpdate = async () => {
+    let attempts = 0
+    const maxAttempts = 15 // Máximo 15 intentos (aprox 15 segundos)
+    const pollInterval = 1000 // Esperar 1 segundo entre intentos
+
+    const checkProfile = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/profile`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          console.log('Perfil verificado:', data)
+
+          // Si el rol cambió a 'user', refrescar el perfil local y redirigir
+          if (data.role === 'user' || data.role === 'resident') {
+            console.log('Rol actualizado a:', data.role)
+            
+            // Refrescar el perfil en el contexto de autenticación
+            await refreshProfile()
+            console.log('Perfil local actualizado')
+            
+            if (onSuccess) {
+              onSuccess()
+            } else {
+              onBack()
+            }
+            return true
+          }
+        }
+      } catch (error) {
+        console.error('Error verificando perfil:', error)
+      }
+
+      attempts++
+      if (attempts < maxAttempts) {
+        setTimeout(checkProfile, pollInterval)
+      } else {
+        // Si llegamos al máximo de intentos, refrescar perfil y redirigir de todas formas
+        console.warn('Máximo de intentos alcanzado, refrescando perfil y redirigiendo')
+        await refreshProfile()
+        if (onSuccess) {
+          onSuccess()
+        } else {
+          onBack()
+        }
+      }
+    }
+
+    checkProfile()
   }
 
   // Tokenizar tarjeta vía API
@@ -224,21 +283,20 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
       const paymentResult = await response.json()
       console.log('Pago procesado exitosamente:', paymentResult)
 
-      setPaymentStatus({
-        status: 'success',
-        message: 'Pago realizado exitosamente'
-      })
-
       // Limpiar campos
       setCardholderName('')
       setCardNumber('')
       setExpiryDate('')
       setCvv('')
 
-      // Regresar después de 2 segundos
-      setTimeout(() => {
-        onBack()
-      }, 2000)
+      // Mostrar pantalla de redirigiendo y verificar actualización en background
+      setPaymentStatus({
+        status: 'redirecting',
+        message: 'Redirigiendo...'
+      })
+
+      // Iniciar verificación inmediatamente
+      verifyProfileUpdate()
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
       console.error('Error en handlePayment:', errorMessage, error)
@@ -318,7 +376,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
           </Card>
 
           {/* Payment Form */}
-          {paymentStatus.status !== 'success' && (
+          {paymentStatus.status !== 'redirecting' && (
             <YStack space='$3'>
               <Text fontSize='$4' fontWeight='bold'>
                 Información de Pago
@@ -404,7 +462,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
           )}
 
           {/* Status Messages */}
-          {paymentStatus.status === 'success' && (
+          {paymentStatus.status === 'redirecting' && (
             <YStack
               flex={1}
               justifyContent='center'
@@ -419,7 +477,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
                 <Text fontSize='$4' color='$gray11' textAlign='center'>
                   Tu cuota de mantenimiento ha sido pagada correctamente
                 </Text>
-                <Text fontSize='$3' color='$gray10' textAlign='center' marginTop='$2'>
+                <Text fontSize='$3' color='$blue10' textAlign='center' marginTop='$3'>
                   Redirigiendo...
                 </Text>
               </YStack>

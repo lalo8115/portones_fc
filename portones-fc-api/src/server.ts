@@ -187,6 +187,86 @@ fastify.get('/gates', async (request, reply) => {
   }
 })
 
+// Access history route
+fastify.get('/access/history', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { limit: limitRaw } = request.query as any
+
+    const parsedLimit = Number(limitRaw)
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 200)
+      : 50
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    let query = supabaseAdmin
+      .from('access_logs')
+      .select(
+        `
+        id,
+        user_id,
+        action,
+        status,
+        timestamp,
+        gate_id,
+        profiles(apartment_unit),
+        gates(name, type)
+      `,
+        { count: 'exact' }
+      )
+      .order('timestamp', { ascending: false })
+      .limit(limit)
+
+    if (profile.role !== 'admin') {
+      query = query.eq('user_id', user.id)
+    }
+
+    const { data, error: logsError, count } = await query
+
+    if (logsError) {
+      throw logsError
+    }
+
+    const records = (data ?? []).map((log: any) => ({
+      id: log.id,
+      gate_id: log.gate_id,
+      gate_name: log.gates?.name || (log.gate_id ? `Portón ${log.gate_id}` : 'Portón'),
+      gate_type: log.gates?.type || 'ENTRADA',
+      user_id: log.user_id,
+      user_email: null,
+      apartment_unit: log.profiles?.apartment_unit ?? null,
+      action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
+      timestamp: log.timestamp,
+      method: 'APP',
+      status: log.status
+    }))
+
+    reply.send({
+      records,
+      total: count ?? records.length
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /access/history')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to fetch access history'
+    })
+  }
+})
+
 // Ruta de prueba MQTT
 fastify.post('/dev/test-mqtt', async (request, reply) => {
   try {

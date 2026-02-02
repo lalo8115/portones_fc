@@ -47,6 +47,7 @@ const AppContent: React.FC = () => {
             apiUrl={API_URL}
             authToken={session.access_token}
             onBack={() => setCurrentScreen('revokedAccess')}
+            onSuccess={() => setCurrentScreen('gateControl')}
           />
         )}
       </>

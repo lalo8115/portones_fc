@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react'
-import { ScrollView, View, Animated, PanResponder, Dimensions } from 'react-native'
+import { ScrollView, View, Animated, PanResponder, Dimensions, Alert } from 'react-native'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, YStack, Text, Spinner, Circle, XStack, Card } from 'tamagui'
 import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, CreditCard } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
 import QRCode from 'react-native-qrcode-svg'
 import { CameraView, useCameraPermissions } from 'expo-camera'
+import { AccessHistoryScreen } from './AccessHistoryScreen'
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -233,6 +234,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   onNavigateToPayment
 }) => {
   const { signOut, user, profile } = useAuth()
+  const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [qrValue, setQrValue] = useState<string | null>(null)
   const [qrExpiresAt, setQrExpiresAt] = useState<Date | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -458,8 +460,10 @@ export const GateControl: React.FC<GateControlProps> = ({
     </YStack>
   )
 
-  // Componente para pantalla de estado de pago
+  // Componente para menú de opciones de la app
   const PaymentStatusScreen = () => {
+    const [selectedOption, setSelectedOption] = useState<string | null>(null)
+    
     // Usar datos reales del backend o valores por defecto
     const amountToPay = paymentStatus?.maintenanceAmount ?? profile?.colonia?.maintenance_monthly_amount ?? 500
     const isPaid = paymentStatus?.isPaid ?? false
@@ -470,155 +474,274 @@ export const GateControl: React.FC<GateControlProps> = ({
     const nextPaymentDate = paymentStatus?.nextPaymentDue 
       ? new Date(paymentStatus.nextPaymentDue) 
       : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
-    
+
+    // Opciones del menú
+    const menuOptions = [
+      {
+        id: 'payment',
+        title: 'Estado de Pago',
+        description: 'Ver estado de cuota de mantenimiento',
+        icon: '💳',
+        color: '$blue10',
+        badge: !isPaid ? 'Pendiente' : 'Al corriente',
+        badgeColor: !isPaid ? '$red10' : '$green10',
+      },
+      {
+        id: 'colonia',
+        title: 'Información de Colonia',
+        description: 'Detalles y contacto de tu colonia',
+        icon: '🏘️',
+        color: '$purple10',
+      },
+      {
+        id: 'history',
+        title: 'Historial de Accesos',
+        description: 'Ver registro de aperturas del portón',
+        icon: '📋',
+        color: '$orange10',
+      },
+      {
+        id: 'notifications',
+        title: 'Notificaciones',
+        description: 'Configurar alertas y avisos',
+        icon: '🔔',
+        color: '$yellow10',
+      },
+      {
+        id: 'support',
+        title: 'Soporte',
+        description: 'Ayuda y contacto',
+        icon: '💬',
+        color: '$gray10',
+      },
+    ]
+
+    // Si hay una opción seleccionada, mostrar su detalle
+    if (selectedOption === 'payment') {
+      return (
+        <YStack padding='$3.5' space='$3'>
+          <XStack alignItems='center' space='$2' marginBottom='$2'>
+            <Button
+              size='$3'
+              chromeless
+              icon={<Text fontSize='$5'>←</Text>}
+              onPress={() => setSelectedOption(null)}
+            />
+            <Text fontSize='$6' fontWeight='bold'>
+              Estado de Pago
+            </Text>
+          </XStack>
+
+          {/* Estado del pago */}
+          <Card 
+            elevate 
+            size='$3.5' 
+            bordered 
+            padding='$3.5' 
+            backgroundColor={!isPaid ? '$red2' : '$green2'}
+          >
+            <YStack space='$2.5' alignItems='center'>
+              <Circle 
+                size={70} 
+                backgroundColor={!isPaid ? '$red10' : '$green10'} 
+                elevate
+              >
+                <Text fontSize='$7' color='white'>
+                  {!isPaid ? '!' : '✓'}
+                </Text>
+              </Circle>
+              <Text 
+                fontSize='$5.5' 
+                fontWeight='bold' 
+                color={!isPaid ? '$red11' : '$green11'}
+              >
+                {!isPaid ? 'Pago Pendiente' : 'Pago al Corriente'}
+              </Text>
+              <Text fontSize='$3' color='$gray11' textAlign='center'>
+                {!isPaid 
+                  ? 'Tu pago mensual está pendiente'
+                  : 'Tu siguiente pago vence pronto'}
+              </Text>
+            </YStack>
+          </Card>
+
+          {/* Información de monto */}
+          <Card elevate size='$3.5' bordered padding='$3.5' backgroundColor='$blue2'>
+            <YStack space='$2.5'>
+              <YStack space='$1'>
+                <Text fontSize='$2.5' color='$gray11'>
+                  Cuota Mensual
+                </Text>
+                <Text fontSize='$6.5' fontWeight='bold' color='$blue11'>
+                  ${amountToPay.toFixed(2)} MXN
+                </Text>
+              </YStack>
+              <YStack 
+                height={1} 
+                backgroundColor='$gray5' 
+                width='100%'
+              />
+              <XStack justifyContent='space-between'>
+                <YStack space='$1'>
+                  <Text fontSize='$2' color='$gray10'>
+                    Último Pago
+                  </Text>
+                  <Text fontSize='$2.5' fontWeight='600' color='$gray12'>
+                    {lastPaymentDate ? lastPaymentDate.toLocaleDateString('es-MX', { 
+                      day: '2-digit', 
+                      month: 'short', 
+                      year: 'numeric' 
+                    }) : 'Sin pagos'}
+                  </Text>
+                </YStack>
+                <YStack space='$1' alignItems='flex-end'>
+                  <Text fontSize='$2' color='$gray10'>
+                    Próximo Pago
+                  </Text>
+                  <Text fontSize='$2.5' fontWeight='600' color='$gray12'>
+                    {nextPaymentDate.toLocaleDateString('es-MX', { 
+                      day: '2-digit', 
+                      month: 'short', 
+                      year: 'numeric' 
+                    })}
+                  </Text>
+                </YStack>
+              </XStack>
+            </YStack>
+          </Card>
+
+          {/* Días hasta el próximo pago */}
+          <Card elevate size='$3.5' bordered padding='$3.5'>
+            <XStack space='$2.5' alignItems='center'>
+              <Circle size={45} backgroundColor='$orange10' elevate>
+                <Text fontSize='$4.5' fontWeight='bold' color='white'>
+                  {daysUntilPayment}
+                </Text>
+              </Circle>
+              <YStack flex={1}>
+                <Text fontSize='$3.5' fontWeight='600'>
+                  {daysUntilPayment === 1 
+                    ? 'Día restante' 
+                    : `Días restantes`}
+                </Text>
+                <Text fontSize='$2.5' color='$gray11'>
+                  Hasta el próximo periodo de pago
+                </Text>
+              </YStack>
+            </XStack>
+          </Card>
+
+          {/* Información adicional */}
+          {profile?.colonia?.nombre && (
+            <Card elevate size='$2.5' bordered padding='$2.5' backgroundColor='$gray2'>
+              <XStack space='$3' justifyContent='space-between'>
+                <YStack space='$1' flex={1}>
+                  <Text fontSize='$2.5' color='$gray11'>
+                    Colonia
+                  </Text>
+                  <Text fontSize='$3.5' fontWeight='600'>
+                    {profile.colonia.nombre}
+                  </Text>
+                </YStack>
+                {profile?.apartment_unit && (
+                  <YStack space='$1' alignItems='flex-end'>
+                    <Text fontSize='$2.5' color='$gray11'>
+                      Departamento
+                    </Text>
+                    <Text fontSize='$3.5' fontWeight='600'>
+                      {profile.apartment_unit}
+                    </Text>
+                  </YStack>
+                )}
+              </XStack>
+            </Card>
+          )}
+
+          {/* Botón de pago */}
+          {!isPaid && (
+            <Button
+              width='100%'
+              size='$3.5'
+              theme='green'
+              onPress={onNavigateToPayment}
+            >
+              <CreditCard size={19} />
+              <Text marginLeft='$2'>Realizar Pago Ahora</Text>
+            </Button>
+          )}
+        </YStack>
+      )
+    }
+
+    // Vista principal del menú de opciones
     return (
       <YStack padding='$3.5' space='$3'>
-        <YStack space='$1.5'>
+        <YStack space='$1.5' marginBottom='$2'>
           <Text fontSize='$6' fontWeight='bold'>
-            Estado de Pago
+            Funciones
           </Text>
-          <Text fontSize='$2.5' color='$gray11'>
-            Cuota mensual de mantenimiento
+          <Text fontSize='$3' color='$gray11'>
+            Selecciona una opción para continuar
           </Text>
         </YStack>
 
-        {/* Estado del pago */}
-        <Card 
-          elevate 
-          size='$3.5' 
-          bordered 
-          padding='$3.5' 
-          backgroundColor={!isPaid ? '$red2' : '$green2'}
-        >
-          <YStack space='$2.5' alignItems='center'>
-            <Circle 
-              size={70} 
-              backgroundColor={!isPaid ? '$red10' : '$green10'} 
+        {/* Lista de opciones */}
+        <YStack space='$2.5'>
+          {menuOptions.map((option) => (
+            <Card
+              key={option.id}
               elevate
+              size='$3.5'
+              bordered
+              padding='$3.5'
+              pressStyle={{ scale: 0.97, opacity: 0.8 }}
+              onPress={() => {
+                if (option.id === 'payment') {
+                  setSelectedOption('payment')
+                } else if (option.id === 'history') {
+                  setShowAccessHistory(true)
+                } else {
+                  // Aquí puedes agregar la lógica para otras opciones
+                  Alert.alert(
+                    option.title,
+                    'Función en desarrollo'
+                  )
+                }
+              }}
             >
-              <Text fontSize='$7' color='white'>
-                {!isPaid ? '!' : '✓'}
-              </Text>
-            </Circle>
-            <Text 
-              fontSize='$5.5' 
-              fontWeight='bold' 
-              color={!isPaid ? '$red11' : '$green11'}
-            >
-              {!isPaid ? 'Pago Pendiente' : 'Pago al Corriente'}
-            </Text>
-            <Text fontSize='$3' color='$gray11' textAlign='center'>
-              {!isPaid 
-                ? 'Tu pago mensual está pendiente'
-                : 'Tu siguiente pago vence pronto'}
-            </Text>
-          </YStack>
-        </Card>
-
-        {/* Información de monto */}
-        <Card elevate size='$3.5' bordered padding='$3.5' backgroundColor='$blue2'>
-          <YStack space='$2.5'>
-            <YStack space='$1'>
-              <Text fontSize='$2.5' color='$gray11'>
-                Cuota Mensual
-              </Text>
-              <Text fontSize='$6.5' fontWeight='bold' color='$blue11'>
-                ${amountToPay.toFixed(2)} MXN
-              </Text>
-            </YStack>
-            <YStack 
-              height={1} 
-              backgroundColor='$gray5' 
-              width='100%'
-            />
-            <XStack justifyContent='space-between'>
-              <YStack space='$1'>
-                <Text fontSize='$2' color='$gray10'>
-                  Último Pago
-                </Text>
-                <Text fontSize='$2.5' fontWeight='600' color='$gray12'>
-                  {lastPaymentDate ? lastPaymentDate.toLocaleDateString('es-MX', { 
-                    day: '2-digit', 
-                    month: 'short', 
-                    year: 'numeric' 
-                  }) : 'Sin pagos'}
-                </Text>
-              </YStack>
-              <YStack space='$1' alignItems='flex-end'>
-                <Text fontSize='$2' color='$gray10'>
-                  Próximo Pago
-                </Text>
-                <Text fontSize='$2.5' fontWeight='600' color='$gray12'>
-                  {nextPaymentDate.toLocaleDateString('es-MX', { 
-                    day: '2-digit', 
-                    month: 'short', 
-                    year: 'numeric' 
-                  })}
-                </Text>
-              </YStack>
-            </XStack>
-          </YStack>
-        </Card>
-
-        {/* Días hasta el próximo pago */}
-        <Card elevate size='$3.5' bordered padding='$3.5'>
-          <XStack space='$2.5' alignItems='center'>
-            <Circle size={45} backgroundColor='$orange10' elevate>
-              <Text fontSize='$4.5' fontWeight='bold' color='white'>
-                {daysUntilPayment}
-              </Text>
-            </Circle>
-            <YStack flex={1}>
-              <Text fontSize='$3.5' fontWeight='600'>
-                {daysUntilPayment === 1 
-                  ? 'Día restante' 
-                  : `Días restantes`}
-              </Text>
-              <Text fontSize='$2.5' color='$gray11'>
-                Hasta el próximo periodo de pago
-              </Text>
-            </YStack>
-          </XStack>
-        </Card>
-
-        {/* Información adicional */}
-        {profile?.colonia?.nombre && (
-          <Card elevate size='$2.5' bordered padding='$2.5' backgroundColor='$gray2'>
-            <XStack space='$3' justifyContent='space-between'>
-              <YStack space='$1' flex={1}>
-                <Text fontSize='$2.5' color='$gray11'>
-                  Colonia
-                </Text>
-                <Text fontSize='$3.5' fontWeight='600'>
-                  {profile.colonia.nombre}
-                </Text>
-              </YStack>
-              {profile?.apartment_unit && (
-                <YStack space='$1' alignItems='flex-end'>
+              <XStack space='$3' alignItems='center'>
+                <Circle size={50} backgroundColor={option.color} elevate>
+                  <Text fontSize='$6'>{option.icon}</Text>
+                </Circle>
+                <YStack flex={1} space='$1'>
+                  <XStack justifyContent='space-between' alignItems='center'>
+                    <Text fontSize='$4' fontWeight='600'>
+                      {option.title}
+                    </Text>
+                    {option.badge && (
+                      <Card
+                        size='$1'
+                        backgroundColor={option.badgeColor}
+                        paddingHorizontal='$2'
+                        paddingVertical='$1'
+                      >
+                        <Text fontSize='$1.5' color='white' fontWeight='600'>
+                          {option.badge}
+                        </Text>
+                      </Card>
+                    )}
+                  </XStack>
                   <Text fontSize='$2.5' color='$gray11'>
-                    Departamento
-                  </Text>
-                  <Text fontSize='$3.5' fontWeight='600'>
-                    {profile.apartment_unit}
+                    {option.description}
                   </Text>
                 </YStack>
-              )}
-            </XStack>
-          </Card>
-        )}
-
-        {/* Botón de pago */}
-        {!isPaid && (
-          <Button
-            width='100%'
-            size='$3.5'
-            theme='green'
-            onPress={onNavigateToPayment}
-          >
-            <CreditCard size={19} />
-            <Text marginLeft='$2'>Realizar Pago Ahora</Text>
-          </Button>
-        )}
+                <Text fontSize='$5' color='$gray10'>
+                  →
+                </Text>
+              </XStack>
+            </Card>
+          ))}
+        </YStack>
       </YStack>
     )
   }
@@ -689,6 +812,16 @@ export const GateControl: React.FC<GateControlProps> = ({
       )}
     </YStack>
   )
+
+  if (showAccessHistory) {
+    return (
+      <AccessHistoryScreen
+        apiUrl={apiUrl}
+        authToken={authToken}
+        onBack={() => setShowAccessHistory(false)}
+      />
+    )
+  }
 
   return (
     <YStack flex={1} backgroundColor='$background'>
