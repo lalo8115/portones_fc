@@ -9,6 +9,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { AccessHistoryScreen } from './AccessHistoryScreen'
 import { CommunityForumScreen } from './CommunityForumScreen'
+import { SupportScreen } from './SupportScreen'
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -789,140 +790,6 @@ export const GateControl: React.FC<GateControlProps> = ({
     )
   }
 
-  const SupportScreen = () => {
-    const supportEmail = 'soporte@portonesfc.com'
-    const supportPhone = '+52 55 1234 5678'
-    const whatsapp = '+52 55 1234 5678'
-
-    const handleEmail = async () => {
-      const url = `mailto:${supportEmail}`
-      const canOpen = await Linking.canOpenURL(url)
-      if (!canOpen) {
-        Alert.alert('Error', 'No se pudo abrir el correo')
-        return
-      }
-      Linking.openURL(url)
-    }
-
-    const handlePhone = async () => {
-      const url = `tel:${supportPhone}`
-      const canOpen = await Linking.canOpenURL(url)
-      if (!canOpen) {
-        Alert.alert('Error', 'No se pudo abrir el teléfono')
-        return
-      }
-      Linking.openURL(url)
-    }
-
-    const handleWhatsApp = async () => {
-      const url = `https://wa.me/${whatsapp.replace(/\D/g, '')}`
-      const canOpen = await Linking.canOpenURL(url)
-      if (!canOpen) {
-        Alert.alert('Error', 'No se pudo abrir WhatsApp')
-        return
-      }
-      Linking.openURL(url)
-    }
-
-    return (
-      <YStack flex={1} backgroundColor='$background'>
-        <XStack
-          justifyContent='space-between'
-          alignItems='center'
-          padding='$4'
-          paddingTop='$8'
-          backgroundColor='$background'
-          borderBottomWidth={1}
-          borderBottomColor='$gray5'
-        >
-          <XStack alignItems='center' space='$2' flex={1}>
-            <Button
-              size='$3'
-              chromeless
-              icon={<ChevronLeft size={20} />}
-              onPress={() => setShowSupport(false)}
-            />
-            <Text fontSize='$6' fontWeight='bold'>
-              Soporte
-            </Text>
-          </XStack>
-        </XStack>
-
-        <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 16 }}>
-          <YStack space='$4'>
-            <Card elevate size='$3.5' bordered padding='$4'>
-              <YStack space='$2'>
-                <Text fontSize='$5' fontWeight='600'>
-                  ¿Necesitas ayuda?
-                </Text>
-                <Text fontSize='$3' color='$gray11'>
-                  Contáctanos por cualquiera de estos medios.
-                </Text>
-              </YStack>
-            </Card>
-
-            <Card elevate size='$3.5' bordered padding='$4'>
-              <XStack space='$3' alignItems='center'>
-                <Circle size={44} backgroundColor='$blue10' elevate>
-                  <Text fontSize='$5' color='white'>@</Text>
-                </Circle>
-                <YStack flex={1}>
-                  <Text fontSize='$4' fontWeight='600'>
-                    Correo
-                  </Text>
-                  <Text fontSize='$3' color='$gray11'>
-                    {supportEmail}
-                  </Text>
-                </YStack>
-                <Button size='$3' theme='blue' onPress={handleEmail}>
-                  Escribir
-                </Button>
-              </XStack>
-            </Card>
-
-            <Card elevate size='$3.5' bordered padding='$4'>
-              <XStack space='$3' alignItems='center'>
-                <Circle size={44} backgroundColor='$green10' elevate>
-                  <Text fontSize='$5' color='white'>☎</Text>
-                </Circle>
-                <YStack flex={1}>
-                  <Text fontSize='$4' fontWeight='600'>
-                    Teléfono
-                  </Text>
-                  <Text fontSize='$3' color='$gray11'>
-                    {supportPhone}
-                  </Text>
-                </YStack>
-                <Button size='$3' theme='green' onPress={handlePhone}>
-                  Llamar
-                </Button>
-              </XStack>
-            </Card>
-
-            <Card elevate size='$3.5' bordered padding='$4'>
-              <XStack space='$3' alignItems='center'>
-                <Circle size={44} backgroundColor='$purple10' elevate>
-                  <Text fontSize='$5' color='white'>💬</Text>
-                </Circle>
-                <YStack flex={1}>
-                  <Text fontSize='$4' fontWeight='600'>
-                    WhatsApp
-                  </Text>
-                  <Text fontSize='$3' color='$gray11'>
-                    {whatsapp}
-                  </Text>
-                </YStack>
-                <Button size='$3' theme='purple' onPress={handleWhatsApp}>
-                  Abrir
-                </Button>
-              </XStack>
-            </Card>
-          </YStack>
-        </ScrollView>
-      </YStack>
-    )
-  }
-
   // Componente para pantalla de QR y escaneo
   const QRScreen = () => (
     <YStack padding='$4' space='$4'>
@@ -1011,7 +878,7 @@ export const GateControl: React.FC<GateControlProps> = ({
 
   if (showSupport) {
     return (
-      <SupportScreen />
+      <SupportScreen onBack={() => setShowSupport(false)} />
     )
   }
 

@@ -1558,6 +1558,68 @@ fastify.post('/forum/posts', async (request, reply) => {
   }
 })
 
+// Support endpoint - Send support message
+fastify.post('/support/send', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { message } = request.body as { message: string }
+
+    if (!message || !message.trim()) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Message is required'
+      })
+      return
+    }
+
+    // Get user profile
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('apartment_unit, colonia_id, colonias!inner(nombre)')
+      .eq('id', user.id)
+      .single()
+
+    const coloniaName = profile?.colonias && Array.isArray(profile.colonias) && profile.colonias.length > 0
+      ? (profile.colonias[0] as any).nombre
+      : null
+
+    // Save message to database (creates a support_messages table)
+    const { data: supportMessage, error: insertError } = await supabaseAdmin
+      .from('support_messages')
+      .insert({
+        user_id: user.id,
+        user_email: user.email,
+        apartment_unit: profile?.apartment_unit,
+        colonia_name: coloniaName,
+        message: message.trim(),
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      fastify.log.error({ error: insertError }, 'Error saving support message')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Failed to send support message'
+      })
+      return
+    }
+
+    reply.status(201).send({
+      success: true,
+      message: 'Tu mensaje ha sido enviado exitosamente',
+      id: supportMessage.id
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /support/send POST')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to send support message'
+    })
+  }
+})
+
 // Graceful shutdown
 const gracefulShutdown = async () => {
   fastify.log.info('Shutting down gracefully...')
