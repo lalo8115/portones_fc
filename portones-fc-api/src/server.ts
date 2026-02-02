@@ -948,7 +948,7 @@ fastify.post('/profile/colonia', async (request, reply) => {
       .from('profiles')
       .update({ colonia_id: colonia.id, updated_at: new Date().toISOString() })
       .eq('id', user.id)
-      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias(id, nombre)')
+      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
       .single()
 
     if (updateError || !updatedProfile) {
@@ -1363,7 +1363,7 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
       .from('profiles')
       .update({ apartment_unit: trimmedUnit, updated_at: new Date().toISOString() })
       .eq('id', user.id)
-      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias(id, nombre)')
+      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
       .single()
 
     if (updateError || !updatedProfile) {
