@@ -7,9 +7,11 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "typecheck": "node --stack_size=16384 ./node_modules/typescript/lib/tsc.js -p tsconfig.json --noEmit",
     "build": "npx expo export --platform web"
   },
   "dependencies": {
+    "@shopify/react-native-skia": "2.2.12",
     "@supabase/supabase-js": "^2.47.10",
     "@tamagui/config": "1.140.3",
     "@tamagui/font-inter": "1.140.3",
@@ -20,6 +22,7 @@
     "expo-auth-session": "~7.0.10",
     "expo-camera": "^17.0.10",
     "expo-linking": "^8.0.11",
+    "expo-sensors": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "^15.0.10",
     "react": "19.1.0",
