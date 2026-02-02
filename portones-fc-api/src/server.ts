@@ -723,7 +723,7 @@ fastify.get('/profile', async (request, reply) => {
     // Get user profile
     let { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('*, colonias(id, nombre, maintenance_monthly_amount)')
+      .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
       .eq('id', user.id)
       .single()
 
@@ -750,7 +750,7 @@ fastify.get('/profile', async (request, reply) => {
           // Profile was created by another request; re-fetch it
           const { data: existingProfile, error: fetchError } = await supabaseAdmin
             .from('profiles')
-            .select('*, colonias(id, nombre, maintenance_monthly_amount)')
+            .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
             .eq('id', user.id)
             .single()
 
