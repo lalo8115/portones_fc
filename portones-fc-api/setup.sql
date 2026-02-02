@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'revoked')),
   apartment_unit TEXT,
+  colonia_id UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -30,6 +31,7 @@ COMMENT ON TABLE profiles IS 'User profiles with roles and apartment info';
 COMMENT ON COLUMN profiles.id IS 'References auth.users(id)';
 COMMENT ON COLUMN profiles.role IS 'User role: user, admin, or revoked';
 COMMENT ON COLUMN profiles.apartment_unit IS 'Apartment unit identifier';
+COMMENT ON COLUMN profiles.colonia_id IS 'References colonias table';
 
 -- ==========================================
 -- 2. CREATE ACCESS_LOGS TABLE
@@ -39,20 +41,98 @@ CREATE TABLE IF NOT EXISTS access_logs (
   user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   action TEXT NOT NULL CHECK (action IN ('OPEN_GATE', 'CLOSE_GATE')),
   status TEXT NOT NULL CHECK (status IN ('SUCCESS', 'DENIED_REVOKED', 'DENIED_NO_ACCESS')),
+  method TEXT DEFAULT 'APP' CHECK (method IN ('APP', 'QR', 'MANUAL', 'AUTOMATIC')),
   ip_address TEXT,
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Add method column if it doesn't exist (for existing installations)
+ALTER TABLE access_logs
+  ADD COLUMN IF NOT EXISTS method TEXT DEFAULT 'APP' CHECK (method IN ('APP', 'QR', 'MANUAL', 'AUTOMATIC'));
 
 -- Add comments
 COMMENT ON TABLE access_logs IS 'Audit log for gate access attempts';
 COMMENT ON COLUMN access_logs.action IS 'OPEN_GATE or CLOSE_GATE';
 COMMENT ON COLUMN access_logs.status IS 'SUCCESS, DENIED_REVOKED, or DENIED_NO_ACCESS';
+COMMENT ON COLUMN access_logs.method IS 'Access method: APP, QR, MANUAL, or AUTOMATIC';
 COMMENT ON COLUMN access_logs.gate_id IS 'ID del portón asociado (1..4)';
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_access_logs_user_id ON access_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_logs_timestamp ON access_logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+
+-- ==========================================
+-- CREATE COLONIAS TABLE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS colonias (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nombre TEXT NOT NULL UNIQUE,
+  maintenance_monthly_amount DECIMAL(10, 2) DEFAULT 0.00,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add comments
+COMMENT ON TABLE colonias IS 'Residential communities/colonias';
+COMMENT ON COLUMN colonias.nombre IS 'Display name of the colonia';
+COMMENT ON COLUMN colonias.id IS 'UUID serves as both primary key and join code for residents';
+COMMENT ON COLUMN colonias.maintenance_monthly_amount IS 'Monthly maintenance fee in MXN';
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_colonias_nombre ON colonias(nombre);
+
+-- RLS for colonias
+ALTER TABLE colonias ENABLE ROW LEVEL SECURITY;
+
+-- Drop policies if exist
+DROP POLICY IF EXISTS "Authenticated users can view colonias" ON colonias;
+DROP POLICY IF EXISTS "Admins can manage colonias" ON colonias;
+DROP POLICY IF EXISTS "Service role full access colonias" ON colonias;
+
+-- Authenticated users can view colonias
+CREATE POLICY "Authenticated users can view colonias"
+  ON colonias FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
+-- Admins can manage colonias
+CREATE POLICY "Admins can manage colonias"
+  ON colonias FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'
+    )
+  );
+
+-- Service role full access
+CREATE POLICY "Service role full access colonias"
+  ON colonias FOR ALL
+  USING (auth.role() = 'service_role');
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS colonias_set_updated_at ON colonias;
+CREATE TRIGGER colonias_set_updated_at
+  BEFORE UPDATE ON colonias
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Add foreign key to profiles after colonias table exists (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_profiles_colonia'
+    ) THEN
+        ALTER TABLE profiles
+            ADD CONSTRAINT fk_profiles_colonia
+            FOREIGN KEY (colonia_id) REFERENCES colonias(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_profiles_colonia_id ON profiles(colonia_id);
 
 -- ==========================================
 -- CREATE GATES TABLE (Portones)
@@ -62,6 +142,8 @@ CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
 CREATE TABLE IF NOT EXISTS gates (
   id SMALLINT PRIMARY KEY CHECK (id BETWEEN 1 AND 4),
   name TEXT NOT NULL,
+  type TEXT DEFAULT 'ENTRADA' CHECK (type IN ('ENTRADA', 'SALIDA')),
+  colonia_id UUID REFERENCES colonias(id) ON DELETE SET NULL,
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -70,10 +152,13 @@ CREATE TABLE IF NOT EXISTS gates (
 -- Comentarios
 COMMENT ON TABLE gates IS 'Listado de portones controlables (IDs 1..4)';
 COMMENT ON COLUMN gates.id IS 'ID del portón. Debe coincidir con firmware/app (1..4)';
+COMMENT ON COLUMN gates.type IS 'Gate type: ENTRADA or SALIDA';
+COMMENT ON COLUMN gates.colonia_id IS 'Associated colonia (NULL = accessible to all)';
 COMMENT ON COLUMN gates.enabled IS 'Habilita/Deshabilita el portón para uso';
 
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_gates_enabled ON gates(enabled);
+CREATE INDEX IF NOT EXISTS idx_gates_colonia_id ON gates(colonia_id);
 
 -- RLS para gates
 ALTER TABLE gates ENABLE ROW LEVEL SECURITY;

@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import { ScrollView, RefreshControl } from 'react-native'
 import { useQuery } from '@tanstack/react-query'
-import { YStack, XStack, Text, Spinner, Card, Circle, Button } from 'tamagui'
-import { Clock, ChevronLeft, LogIn, LogOut as LogOutIcon, Calendar } from '@tamagui/lucide-icons'
+import { YStack, XStack, Text, Spinner, Card, Circle, Button, Sheet } from 'tamagui'
+import { Clock, ChevronLeft, LogIn, LogOut as LogOutIcon, Calendar, User, Mail, Hash, Info, X } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
 
 interface AccessRecord {
@@ -59,6 +59,8 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
   onBack
 }) => {
   const [refreshing, setRefreshing] = useState(false)
+  const [selectedRecord, setSelectedRecord] = useState<AccessRecord | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
   const { getToken } = useAuth()
 
   const { data, isLoading, refetch } = useQuery({
@@ -71,6 +73,16 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
     setRefreshing(true)
     await refetch()
     setRefreshing(false)
+  }
+
+  const handleRecordPress = (record: AccessRecord) => {
+    setSelectedRecord(record)
+    setSheetOpen(true)
+  }
+
+  const handleCloseSheet = () => {
+    setSheetOpen(false)
+    setTimeout(() => setSelectedRecord(null), 300)
   }
 
   const formatDate = (timestamp: string) => {
@@ -241,20 +253,29 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
             </YStack>
           </YStack>
         ) : (
-          <YStack space='$4'>
+          <YStack space='$6'>
             {Object.entries(groupedRecords).map(([date, records]) => (
-              <YStack key={date} space='$2'>
+              <YStack key={date} space='$3'>
                 {/* Separador de fecha */}
-                <XStack alignItems='center' space='$2' paddingVertical='$2'>
-                  <Calendar size={16} color='$gray11' />
-                  <Text fontSize='$3' fontWeight='600' color='$gray11'>
+                <XStack 
+                  alignItems='center' 
+                  space='$2' 
+                  paddingVertical='$3'
+                  paddingHorizontal='$3'
+                  backgroundColor='$gray3'
+                  borderRadius='$4'
+                  marginBottom='$2'
+                >
+                  <Calendar size={18} color='$blue10' />
+                  <Text fontSize='$4' fontWeight='700' color='$gray12'>
                     {date}
                   </Text>
-                  <YStack flex={1} height={1} backgroundColor='$gray5' />
+                  <YStack flex={1} height={2} backgroundColor='$gray6' borderRadius='$2' />
                 </XStack>
 
                 {/* Registros del día */}
-                {records.map((record) => {
+                <YStack space='$3'>
+                  {records.map((record) => {
                   const ActionIcon = getActionIcon(record.action)
                   
                   return (
@@ -264,6 +285,8 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                       size='$3'
                       bordered
                       padding='$3'
+                      pressStyle={{ scale: 0.98, opacity: 0.8 }}
+                      onPress={() => handleRecordPress(record)}
                     >
                       <XStack space='$3' alignItems='center'>
                         {/* Icono de acción */}
@@ -294,12 +317,6 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                             {getGateTypeText(record.gate_type)} • {getMethodText(record.method)}
                           </Text>
 
-                          {record.apartment_unit && (
-                            <Text fontSize='$2' color='$gray10'>
-                              Depto. {record.apartment_unit}
-                            </Text>
-                          )}
-
                           <XStack alignItems='center' space='$1' marginTop='$1'>
                             <Clock size={12} color='$gray10' />
                             <Text fontSize='$2' color='$gray10'>
@@ -311,11 +328,173 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                     </Card>
                   )
                 })}
+                </YStack>
               </YStack>
             ))}
           </YStack>
         )}
       </ScrollView>
+
+      {/* Modal de detalles */}
+      <Sheet
+        modal
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        snapPoints={[60]}
+        dismissOnSnapToBottom
+        zIndex={100000}
+        animation="medium"
+      >
+        <Sheet.Overlay 
+          animation="lazy" 
+          enterStyle={{ opacity: 0 }}
+          exitStyle={{ opacity: 0 }}
+        />
+        <Sheet.Frame 
+          padding="$4" 
+          backgroundColor="$background"
+          borderTopLeftRadius="$6"
+          borderTopRightRadius="$6"
+        >
+          <Sheet.Handle />
+          
+          {selectedRecord && (
+            <YStack space="$4" paddingTop="$2">
+              {/* Header del modal */}
+              <XStack justifyContent="space-between" alignItems="center">
+                <Text fontSize="$6" fontWeight="bold">
+                  Detalles del Acceso
+                </Text>
+                <Button
+                  size="$3"
+                  circular
+                  chromeless
+                  icon={<X size={20} />}
+                  onPress={handleCloseSheet}
+                />
+              </XStack>
+
+              {/* Indicador visual de acción */}
+              <XStack 
+                space="$3" 
+                alignItems="center"
+                padding="$3"
+                backgroundColor={getActionColor(selectedRecord.action) + '20'}
+                borderRadius="$4"
+              >
+                <Circle 
+                  size={60} 
+                  backgroundColor={getActionColor(selectedRecord.action)} 
+                  elevate
+                >
+                  {React.createElement(getActionIcon(selectedRecord.action), { size: 30, color: 'white' })}
+                </Circle>
+                <YStack flex={1}>
+                  <Text fontSize="$5" fontWeight="600">
+                    {selectedRecord.gate_name}
+                  </Text>
+                  <Text fontSize="$3" color="$gray11">
+                    {getGateTypeText(selectedRecord.gate_type)}
+                  </Text>
+                </YStack>
+                <Text 
+                  fontSize="$4" 
+                  color={getActionColor(selectedRecord.action)}
+                  fontWeight="700"
+                >
+                  {getActionText(selectedRecord.action)}
+                </Text>
+              </XStack>
+
+              {/* Detalles */}
+              <YStack space="$3">
+                {/* Fecha y hora completa */}
+                <XStack space="$3" alignItems="center">
+                  <Circle size={36} backgroundColor="$blue3">
+                    <Clock size={18} color="$blue10" />
+                  </Circle>
+                  <YStack flex={1}>
+                    <Text fontSize="$2" color="$gray11">
+                      Fecha y hora
+                    </Text>
+                    <Text fontSize="$3" fontWeight="600">
+                      {formatFullDate(selectedRecord.timestamp)}
+                    </Text>
+                  </YStack>
+                </XStack>
+
+                {/* Método de acceso */}
+                <XStack space="$3" alignItems="center">
+                  <Circle size={36} backgroundColor="$purple3">
+                    <Info size={18} color="$purple10" />
+                  </Circle>
+                  <YStack flex={1}>
+                    <Text fontSize="$2" color="$gray11">
+                      Método de acceso
+                    </Text>
+                    <Text fontSize="$3" fontWeight="600">
+                      {getMethodText(selectedRecord.method)}
+                    </Text>
+                  </YStack>
+                </XStack>
+
+                {/* Usuario */}
+                {selectedRecord.user_email && (
+                  <XStack space="$3" alignItems="center">
+                    <Circle size={36} backgroundColor="$green3">
+                      <Mail size={18} color="$green10" />
+                    </Circle>
+                    <YStack flex={1}>
+                      <Text fontSize="$2" color="$gray11">
+                        Usuario
+                      </Text>
+                      <Text fontSize="$3" fontWeight="600">
+                        {selectedRecord.user_email}
+                      </Text>
+                    </YStack>
+                  </XStack>
+                )}
+
+
+
+                {/* Estado (si existe) */}
+                {selectedRecord.status && (
+                  <XStack space="$3" alignItems="center">
+                    <Circle size={36} backgroundColor="$orange3">
+                      <Info size={18} color="$orange10" />
+                    </Circle>
+                    <YStack flex={1}>
+                      <Text fontSize="$2" color="$gray11">
+                        Estado
+                      </Text>
+                      <Text fontSize="$3" fontWeight="600">
+                        {selectedRecord.status}
+                      </Text>
+                    </YStack>
+                  </XStack>
+                )}
+
+                {/* Número de casa (si existe) */}
+                {selectedRecord.apartment_unit && (
+                  <XStack space="$3" alignItems="center">
+                    <Circle size={36} backgroundColor="$yellow3">
+                      <User size={18} color="$yellow10" />
+                    </Circle>
+                    <YStack flex={1}>
+                      <Text fontSize="$2" color="$gray11">
+                        Número de casa
+                      </Text>
+                      <Text fontSize="$3" fontWeight="600">
+                        {selectedRecord.apartment_unit}
+                      </Text>
+                    </YStack>
+                  </XStack>
+                )}
+              </YStack>
+            </YStack>
+          )}
+        </Sheet.Frame>
+      </Sheet>
     </YStack>
   )
 }

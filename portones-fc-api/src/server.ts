@@ -746,15 +746,35 @@ fastify.get('/profile', async (request, reply) => {
         .single()
 
       if (createError) {
-        fastify.log.error({ error: createError }, 'Failed to create profile')
-        reply.status(500).send({
-          error: 'Server Error',
-          message: 'Failed to create user profile'
-        })
-        return
-      }
+        if ((createError as any)?.code === '23505') {
+          // Profile was created by another request; re-fetch it
+          const { data: existingProfile, error: fetchError } = await supabaseAdmin
+            .from('profiles')
+            .select('*, colonias(id, nombre, maintenance_monthly_amount)')
+            .eq('id', user.id)
+            .single()
 
-      profile = newProfile
+          if (fetchError || !existingProfile) {
+            fastify.log.error({ error: fetchError }, 'Failed to fetch profile after duplicate insert')
+            reply.status(500).send({
+              error: 'Server Error',
+              message: 'Failed to fetch user profile'
+            })
+            return
+          }
+
+          profile = existingProfile
+        } else {
+          fastify.log.error({ error: createError }, 'Failed to create profile')
+          reply.status(500).send({
+            error: 'Server Error',
+            message: 'Failed to create user profile'
+          })
+          return
+        }
+      } else {
+        profile = newProfile
+      }
     }
 
     reply.send({
