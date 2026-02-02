@@ -200,7 +200,7 @@ fastify.get('/access/history', async (request, reply) => {
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('role, apartment_unit')
+      .select('role, apartment_unit, colonia_id')
       .eq('id', user.id)
       .single()
 
@@ -212,6 +212,34 @@ fastify.get('/access/history', async (request, reply) => {
       return
     }
 
+    // Obtener user_ids de usuarios de la misma casa y colonia
+    let allowedUserIds: string[] = []
+    
+    if (profile.role !== 'admin') {
+      // Validar que el usuario tenga apartment_unit y colonia_id
+      if (!profile.apartment_unit || !profile.colonia_id) {
+        reply.status(403).send({
+          error: 'Forbidden',
+          message: 'User must belong to a house and community'
+        })
+        return
+      }
+
+      // Obtener todos los usuarios de la misma casa y colonia
+      const { data: householdUsers, error: householdError } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('apartment_unit', profile.apartment_unit)
+        .eq('colonia_id', profile.colonia_id)
+        .neq('role', 'revoked')
+
+      if (householdError) {
+        throw householdError
+      }
+
+      allowedUserIds = (householdUsers || []).map((u: any) => u.id)
+    }
+
     let query = supabaseAdmin
       .from('access_logs')
       .select('id, user_id, action, status, method, timestamp, gate_id', {
@@ -221,7 +249,17 @@ fastify.get('/access/history', async (request, reply) => {
       .limit(limit)
 
     if (profile.role !== 'admin') {
-      query = query.eq('user_id', user.id)
+      // Filtrar por los usuarios de la misma casa
+      if (allowedUserIds.length > 0) {
+        query = query.in('user_id', allowedUserIds)
+      } else {
+        // Si no hay usuarios en la casa, retornar vacío
+        reply.send({
+          records: [],
+          total: 0
+        })
+        return
+      }
     }
 
     const { data: logs, error: logsError, count } = await query
@@ -288,7 +326,21 @@ fastify.get('/access/history', async (request, reply) => {
         })
       }
     } else {
-      profilesMap.set(user.id, { apartment_unit: profile.apartment_unit ?? null })
+      // Para usuarios normales, obtener info de todos los usuarios de la casa
+      if (allowedUserIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await supabaseAdmin
+          .from('profiles')
+          .select('id, apartment_unit')
+          .in('id', allowedUserIds)
+
+        if (profilesError) {
+          throw profilesError
+        }
+
+        profilesData?.forEach((p: any) => {
+          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null })
+        })
+      }
     }
 
     const gatesMap = new Map<number, { name?: string; type?: string }>()
