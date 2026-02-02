@@ -34,6 +34,24 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
   const monthlyAmount = 500 // Fallback en caso de que no venga de la colonia
   const currency = 'MXN'
   const amountToPay = profile?.colonia?.maintenance_monthly_amount ?? monthlyAmount
+  const adeudoMeses = profile?.adeudo_meses ?? 0
+  const totalAdeudo = amountToPay * adeudoMeses
+
+  // Función para formatear número de tarjeta (xxxx xxxx xxxx xxxx)
+  const formatCardNumber = (value: string) => {
+    const cleaned = value.replace(/\s+/g, '')
+    const formatted = cleaned.replace(/(\d{4})(?=\d)/g, '$1 ')
+    return formatted.slice(0, 19) // Máximo 16 dígitos + 3 espacios
+  }
+
+  // Función para formatear fecha de expiración (xx/xx)
+  const formatExpiryDate = (value: string) => {
+    const cleaned = value.replace(/\D/g, '')
+    if (cleaned.length <= 2) {
+      return cleaned
+    }
+    return cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4)
+  }
 
   // Obtener Openpay public key del backend al cargar
   useEffect(() => {
@@ -146,7 +164,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
         throw new Error('No se pudo tokenizar la tarjeta')
       }
 
-      // Paso 3: Enviar al backend solo token + device session
+      // Paso 3: Enviar al backend solo token + device session + amount
       const response = await fetch(`${apiUrl}/payment/maintenance`, {
         method: 'POST',
         headers: {
@@ -156,7 +174,8 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
         body: JSON.stringify({
           tokenId,
           deviceSessionId,
-          cardholderName
+          cardholderName,
+          amount: totalAdeudo
         })
       })
 
@@ -237,14 +256,19 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
           </Card>
 
           {/* Amount Summary */}
-          <Card elevate size='$4' bordered padding='$4' backgroundColor='$blue2'>
+          <Card elevate size='$4' bordered padding='$4' backgroundColor={adeudoMeses > 0 ? '$red2' : '$blue2'}>
             <YStack space='$2' alignItems='center'>
               <Text fontSize='$3' color='$gray11'>
-                Cuota Mensual de Mantenimiento
+                {adeudoMeses > 0 ? 'Monto a Pagar' : 'Cuota Mensual de Mantenimiento'}
               </Text>
-              <Text fontSize='$8' fontWeight='bold' color='$blue11'>
-                ${amountToPay.toFixed(2)}
+              <Text fontSize='$8' fontWeight='bold' color={adeudoMeses > 0 ? '$red11' : '$blue11'}>
+                ${totalAdeudo.toFixed(2)}
               </Text>
+              {adeudoMeses > 0 && (
+                <Text fontSize='$2' color='$gray10' marginTop='$2'>
+                  {adeudoMeses} meses × ${amountToPay.toFixed(2)}
+                </Text>
+              )}
               <Text fontSize='$2' color='$gray10'>
                 {currency}
               </Text>
@@ -278,7 +302,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
                 <Input
                   placeholder='1234 5678 9012 3456'
                   value={cardNumber}
-                  onChangeText={setCardNumber}
+                  onChangeText={(value) => setCardNumber(formatCardNumber(value))}
                   keyboardType='numeric'
                   maxLength={19}
                   editable={paymentStatus.status !== 'loading'}
@@ -294,7 +318,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
                   <Input
                     placeholder='MM/AA'
                     value={expiryDate}
-                    onChangeText={setExpiryDate}
+                    onChangeText={(value) => setExpiryDate(formatExpiryDate(value))}
                     keyboardType='numeric'
                     maxLength={5}
                     editable={paymentStatus.status !== 'loading'}

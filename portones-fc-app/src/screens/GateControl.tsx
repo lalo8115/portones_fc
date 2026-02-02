@@ -113,7 +113,6 @@ interface GateCardProps {
   status: string
   apiUrl: string
   authToken: string
-  isRevoked: boolean
   onSuccess: () => void
 }
 
@@ -123,7 +122,6 @@ const GateCard: React.FC<GateCardProps> = ({
   status,
   apiUrl,
   authToken,
-  isRevoked,
   onSuccess
 }) => {
   const effectiveStatus = status === 'UNKNOWN' ? 'CLOSED' : status
@@ -214,7 +212,7 @@ const GateCard: React.FC<GateCardProps> = ({
             width='100%'
             size='$3'
             theme='green'
-            disabled={isRevoked || buttonState !== 'idle'}
+            disabled={buttonState !== 'idle'}
             onPress={() => openMutation.mutate()}
           >
             {buttonState === 'sending' && (
@@ -235,7 +233,6 @@ export const GateControl: React.FC<GateControlProps> = ({
   onNavigateToPayment
 }) => {
   const { signOut, user, profile } = useAuth()
-  const isRevoked = profile?.role === 'revoked'
   const [qrValue, setQrValue] = useState<string | null>(null)
   const [qrExpiresAt, setQrExpiresAt] = useState<Date | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -447,7 +444,6 @@ export const GateControl: React.FC<GateControlProps> = ({
                           status={gate.status}
                           apiUrl={apiUrl}
                           authToken={authToken}
-                          isRevoked={isRevoked}
                           onSuccess={refetchGates}
                         />
                       </YStack>
@@ -740,43 +736,21 @@ export const GateControl: React.FC<GateControlProps> = ({
 
       <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         {/* Main Content */}
-        {isRevoked ? (
-          <YStack
-            flex={1}
-            justifyContent='center'
-            alignItems='center'
-            padding='$6'
-            space='$4'
-          >
-            <Circle size={100} backgroundColor='$red10' elevate>
-              <Lock size={50} color='white' />
-            </Circle>
-            <YStack space='$2' alignItems='center'>
-              <Text fontSize='$6' fontWeight='bold' color='$red11'>
-                Acceso Denegado
-              </Text>
-              <Text fontSize='$4' color='$gray11' textAlign='center'>
-                Tu cuenta ha sido suspendida. Contacta al administrador del
-                edificio.
-              </Text>
-            </YStack>
-          </YStack>
-        ) : (
-          <YStack flex={1}>
-            {/* Contenedor de pantallas deslizables */}
-            <View style={{ flex: 1, overflow: 'hidden' }}>
-              <Animated.View 
-                style={{
-                  flex: 1,
-                  flexDirection: 'row',
-                  width: screenWidth * 3,
-                  transform: [{ translateX: slideAnim }]
-                }}
-              >
-                {/* Pantalla 0: Estado de Pago */}
-                <View style={{ width: screenWidth, flex: 1 }}>
-                  <PaymentStatusScreen />
-                </View>
+        <YStack flex={1}>
+          {/* Contenedor de pantallas deslizables */}
+          <View style={{ flex: 1, overflow: 'hidden' }}>
+            <Animated.View 
+              style={{
+                flex: 1,
+                flexDirection: 'row',
+                width: screenWidth * 3,
+                transform: [{ translateX: slideAnim }]
+              }}
+            >
+              {/* Pantalla 0: Estado de Pago */}
+              <View style={{ width: screenWidth, flex: 1 }}>
+                <PaymentStatusScreen />
+              </View>
 
                 {/* Pantalla 1: Control de Portones (Principal) */}
                 <View style={{ width: screenWidth, flex: 1 }}>
@@ -848,7 +822,6 @@ export const GateControl: React.FC<GateControlProps> = ({
               </Button>
             </XStack>
           </YStack>
-        )}
       </ScrollView>
       {isScanning && (
         <YStack

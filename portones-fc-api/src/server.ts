@@ -374,11 +374,13 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     const {
       tokenId,
       deviceSessionId,
-      cardholderName
+      cardholderName,
+      amount
     } = request.body as {
       tokenId?: string
       deviceSessionId?: string
       cardholderName?: string
+      amount?: number
     }
 
     if (!tokenId) {
@@ -389,11 +391,14 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       return
     }
 
+    // Usar el amount del frontend si viene, sino usar amountToCharge calculado
+    const finalAmount = amount && amount > 0 ? amount : amountToCharge
+
     // Create charge via Openpay API using tokenId
     const chargePayload = {
       source_id: tokenId,
       method: 'card',
-      amount: amountToCharge,
+      amount: finalAmount,
       currency: maintenanceCurrency,
       description: 'Pago de mantenimiento mensual',
       device_session_id: deviceSessionId || undefined,
@@ -413,7 +418,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
         user_id: user.id,
         colonia_id: coloniaId,
         apartment_unit: apartmentUnit,
-        amount: amountToCharge,
+        amount: finalAmount,
         payment_date: currentDate.toISOString(),
         period_month: currentDate.getMonth() + 1,
         period_year: currentDate.getFullYear(),
@@ -426,11 +431,33 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       fastify.log.error({ error: paymentError }, 'Error al guardar el pago en la base de datos')
     }
 
+    // Actualizar perfil: resetear adeudo_meses a 0 y cambiar role a 'resident'
+    if (charge.status === 'completed') {
+      fastify.log.info('Pago completado para usuario ' + user.id + '. Actualizando perfil...')
+      const { data: updateData, error: updateError } = await supabaseAdmin
+        .from('profiles')
+        .update({
+          adeudo_meses: 0,
+          role: 'resident',
+          updated_at: currentDate.toISOString()
+        })
+        .eq('id', user.id)
+        .select()
+
+      if (updateError) {
+        fastify.log.error({ error: updateError }, 'Error al actualizar el perfil después del pago')
+      } else {
+        fastify.log.info('Perfil actualizado exitosamente para usuario ' + user.id)
+      }
+    } else {
+      fastify.log.warn('Pago pendiente para usuario ' + user.id + ' (status: ' + charge.status + ')')
+    }
+
     reply.send({
       ok: true,
       chargeId: charge.id,
       status: charge.status,
-      amount: amountToCharge,
+      amount: finalAmount,
       currency: maintenanceCurrency,
       colonia_id: profile?.colonia_id || null,
       colonia_nombre: coloniaData?.nombre || null
@@ -587,6 +614,7 @@ fastify.get('/profile', async (request, reply) => {
       apartment_unit: profile.apartment_unit,
       colonia_id: profile.colonia_id,
       colonia: profile.colonias || null,
+      adeudo_meses: profile.adeudo_meses || 0,
       created_at: profile.created_at,
       updated_at: profile.updated_at
     })

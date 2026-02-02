@@ -7,13 +7,14 @@ import { ColoniaCodeScreen } from './screens/ColoniaCodeScreen'
 import { GateControl } from './screens/GateControl'
 import { LoginScreen } from './screens/LoginScreen'
 import { MaintenancePaymentScreen } from './screens/MaintenancePaymentScreen'
+import { RevokedAccessScreen } from './screens/RevokedAccessScreen'
 import tamaguiConfig from '../tamagui.config'
 
 const queryClient = new QueryClient()
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
 
-type NavigationScreen = 'gateControl' | 'maintenancePayment'
+type NavigationScreen = 'gateControl' | 'maintenancePayment' | 'revokedAccess' | 'revokedPayment'
 
 const AppContent: React.FC = () => {
   const { session, loading, profile } = useAuth()
@@ -29,6 +30,27 @@ const AppContent: React.FC = () => {
 
   if (!profile?.colonia_id) {
     return <ColoniaCodeScreen />
+  }
+
+  if (profile?.role === 'revoked') {
+    return (
+      <>
+        {(currentScreen === 'gateControl' || currentScreen === 'revokedAccess') && (
+          <RevokedAccessScreen
+            apiUrl={API_URL}
+            authToken={session.access_token}
+            onNavigateToPayment={() => setCurrentScreen('revokedPayment')}
+          />
+        )}
+        {currentScreen === 'revokedPayment' && (
+          <MaintenancePaymentScreen
+            apiUrl={API_URL}
+            authToken={session.access_token}
+            onBack={() => setCurrentScreen('revokedAccess')}
+          />
+        )}
+      </>
+    )
   }
 
   return (
