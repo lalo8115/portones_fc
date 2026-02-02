@@ -106,37 +106,68 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
       // Openpay expects 2-digit year (01-99)
       const expirationYear = parseInt(yearStr, 10) % 100
 
+      const payload = {
+        card_number: cardNumber.replace(/\s+/g, ''),
+        holder_name: cardholderName,
+        expiration_month: expirationMonth,
+        expiration_year: expirationYear,
+        cvv2: cvv
+      }
+
+      console.log('Enviando payload a tokenize:', payload)
+
       const response = await fetch(`${apiUrl}/payment/tokenize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          card_number: cardNumber.replace(/\s+/g, ''),
-          holder_name: cardholderName,
-          expiration_month: expirationMonth,
-          expiration_year: expirationYear,
-          cvv2: cvv
-        })
+        body: JSON.stringify(payload)
       })
 
+      const data = await response.json()
+      console.log('Respuesta de tokenize:', data)
+
       if (response.ok) {
-        const data = await response.json()
         return data.tokenId || data.id
       } else {
-        const error = await response.json()
-        throw new Error(error.message || 'Error al tokenizar tarjeta')
+        throw new Error(data.message || 'Error al tokenizar tarjeta')
       }
     } catch (error) {
+      console.error('Error en tokenizeCard:', error)
       throw error
     }
   }
 
   const handlePayment = async () => {
-    if (!cardholderName || !cardNumber || !expiryDate || !cvv) {
+    // Validar que todos los campos estén completos
+    if (!cardholderName || !cardholderName.trim()) {
       setPaymentStatus({
         status: 'error',
-        message: 'Por favor completa todos los campos'
+        message: 'Por favor ingresa el nombre en la tarjeta'
+      })
+      return
+    }
+
+    if (!cardNumber || cardNumber.replace(/\s+/g, '').length < 13) {
+      setPaymentStatus({
+        status: 'error',
+        message: 'Por favor ingresa un número de tarjeta válido'
+      })
+      return
+    }
+
+    if (!expiryDate || !expiryDate.includes('/') || expiryDate.length < 5) {
+      setPaymentStatus({
+        status: 'error',
+        message: 'Por favor ingresa la fecha de vencimiento en formato MM/AA'
+      })
+      return
+    }
+
+    if (!cvv || cvv.length < 3) {
+      setPaymentStatus({
+        status: 'error',
+        message: 'Por favor ingresa un CVV válido'
       })
       return
     }
@@ -148,12 +179,15 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
 
     try {
       // Paso 1: Generar device session ID
+      console.log('Paso 1: Generando device session ID')
       const deviceSessionId = await generateDeviceSessionId()
       if (!deviceSessionId) {
         throw new Error('No se pudo generar sesión de dispositivo')
       }
+      console.log('Device session ID generado:', deviceSessionId)
 
       // Paso 2: Tokenizar tarjeta
+      console.log('Paso 2: Tokenizando tarjeta')
       const tokenId = await tokenizeCard(
         cardNumber,
         expiryDate,
@@ -163,8 +197,10 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
       if (!tokenId) {
         throw new Error('No se pudo tokenizar la tarjeta')
       }
+      console.log('Token ID obtenido:', tokenId)
 
       // Paso 3: Enviar al backend solo token + device session + amount
+      console.log('Paso 3: Enviando pago al backend')
       const response = await fetch(`${apiUrl}/payment/maintenance`, {
         method: 'POST',
         headers: {
@@ -181,8 +217,12 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
 
       if (!response.ok) {
         const error = await response.json()
+        console.error('Error en respuesta de pago:', error)
         throw new Error(error.message || 'Error al procesar el pago')
       }
+
+      const paymentResult = await response.json()
+      console.log('Pago procesado exitosamente:', paymentResult)
 
       setPaymentStatus({
         status: 'success',
@@ -200,9 +240,11 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
         onBack()
       }, 2000)
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      console.error('Error en handlePayment:', errorMessage, error)
       setPaymentStatus({
         status: 'error',
-        message: error instanceof Error ? error.message : 'Error desconocido'
+        message: errorMessage
       })
     }
   }

@@ -295,10 +295,14 @@ fastify.post('/payment/tokenize', async (request, reply) => {
       cvv2?: string
     }
 
+    // Log para debugging
+    fastify.log.info({ card_number, holder_name, expiration_month, expiration_year, cvv2 }, 'Datos recibidos en tokenize')
+
     if (!card_number || !expiration_month || !expiration_year || !cvv2) {
+      fastify.log.warn('Faltan datos de tarjeta. card_number: ' + !!card_number + ', expiration_month: ' + !!expiration_month + ', expiration_year: ' + !!expiration_year + ', cvv2: ' + !!cvv2)
       reply.status(400).send({
         error: 'Bad Request',
-        message: 'Faltan datos de tarjeta'
+        message: 'Faltan datos de tarjeta: card_number=' + !!card_number + ', expiration_month=' + !!expiration_month + ', expiration_year=' + !!expiration_year + ', cvv2=' + !!cvv2
       })
       return
     }
