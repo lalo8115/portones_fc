@@ -3,6 +3,7 @@ import { ScrollView, RefreshControl } from 'react-native'
 import { useQuery } from '@tanstack/react-query'
 import { YStack, XStack, Text, Spinner, Card, Circle, Button } from 'tamagui'
 import { Clock, ChevronLeft, LogIn, LogOut as LogOutIcon, Calendar } from '@tamagui/lucide-icons'
+import { useAuth } from '../contexts/AuthContext'
 
 interface AccessRecord {
   id: string
@@ -25,15 +26,19 @@ interface AccessHistoryResponse {
 
 interface AccessHistoryScreenProps {
   apiUrl: string
-  authToken: string
   onBack: () => void
 }
 
 const fetchAccessHistory = async (
   apiUrl: string,
-  authToken: string,
+  getToken: () => Promise<string | null>,
   limit: number = 50
 ): Promise<AccessHistoryResponse> => {
+  const authToken = await getToken()
+  if (!authToken) {
+    throw new Error('No authentication token available')
+  }
+
   const response = await fetch(`${apiUrl}/access/history?limit=${limit}`, {
     method: 'GET',
     headers: {
@@ -51,14 +56,14 @@ const fetchAccessHistory = async (
 
 export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
   apiUrl,
-  authToken,
   onBack
 }) => {
   const [refreshing, setRefreshing] = useState(false)
+  const { getToken } = useAuth()
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['accessHistory', authToken],
-    queryFn: () => fetchAccessHistory(apiUrl, authToken),
+    queryKey: ['accessHistory'],
+    queryFn: () => fetchAccessHistory(apiUrl, getToken),
     refetchInterval: 30000 // Refetch cada 30 segundos
   })
 

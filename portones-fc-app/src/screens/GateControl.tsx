@@ -817,7 +817,6 @@ export const GateControl: React.FC<GateControlProps> = ({
     return (
       <AccessHistoryScreen
         apiUrl={apiUrl}
-        authToken={authToken}
         onBack={() => setShowAccessHistory(false)}
       />
     )
