@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { ScrollView, Alert, RefreshControl } from 'react-native'
 import { YStack, XStack, Text, Button, Card, Input, TextArea, Spinner, Circle } from 'tamagui'
-import { ChevronLeft, Plus, MessageCircle, Calendar, AlertCircle, Send } from '@tamagui/lucide-icons'
+import { ChevronLeft, Plus, MessageCircle, Calendar, AlertCircle, Send, ChevronDown } from '@tamagui/lucide-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -78,6 +78,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   const { profile } = useAuth()
   const queryClient = useQueryClient()
   const [selectedCategory, setSelectedCategory] = useState<'events' | 'messages' | 'requests'>('events')
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
   const [showCreatePost, setShowCreatePost] = useState(false)
   const [newPostTitle, setNewPostTitle] = useState('')
   const [newPostContent, setNewPostContent] = useState('')
@@ -278,7 +279,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
           />
           <YStack flex={1}>
             <Text fontSize='$6' fontWeight='bold'>
-              Foro Comunitario
+              Comunidad
             </Text>
             {profile?.colonia?.nombre && (
               <Text fontSize='$2' color='$gray11'>
@@ -297,43 +298,73 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
         </Button>
       </XStack>
 
-      {/* Categorías */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16 }}
-      >
-        <XStack space='$2'>
-          {categories.map((category) => {
-            const Icon = category.icon
-            const isSelected = selectedCategory === category.id
-            
-            return (
-              <Card
-                key={category.id}
-                elevate={isSelected}
-                size='$3'
-                bordered
-                padding='$3'
-                backgroundColor={isSelected ? category.color : '$background'}
-                pressStyle={{ scale: 0.97 }}
-                onPress={() => setSelectedCategory(category.id)}
-              >
-                <XStack space='$2' alignItems='center'>
-                  <Icon size={20} color={isSelected ? 'white' : category.color} />
-                  <Text 
-                    fontSize='$3' 
-                    fontWeight='600' 
-                    color={isSelected ? 'white' : '$color'}
-                  >
-                    {category.title}
-                  </Text>
-                </XStack>
-              </Card>
-            )
-          })}
-        </XStack>
-      </ScrollView>
+      {/* Categorías - Dropdown */}
+      <YStack padding='$4' paddingTop='$3' paddingBottom='$3' borderBottomWidth={1} borderBottomColor='$gray5'>
+        <Text fontSize='$2' fontWeight='600' color='$gray11' marginBottom='$2'>
+          Categoría
+        </Text>
+        
+        <Button
+          size='$4'
+          width='100%'
+          justifyContent='space-between'
+          backgroundColor={selectedCategoryData?.color}
+          borderRadius='$2'
+          onPress={() => setShowCategoryDropdown(!showCategoryDropdown)}
+        >
+          <XStack space='$2' alignItems='center' flex={1}>
+            {selectedCategoryData && <selectedCategoryData.icon size={18} color='white' />}
+            <Text color='white' fontWeight='600' flex={1} textAlign='left'>
+              {selectedCategoryData?.title}
+            </Text>
+          </XStack>
+          <ChevronDown size={18} color='white' style={{ transform: [{ rotate: showCategoryDropdown ? '180deg' : '0deg' }] }} />
+        </Button>
+
+        {showCategoryDropdown && (
+          <YStack
+            marginTop='$2'
+            borderRadius='$2'
+            borderWidth={1}
+            borderColor='$gray5'
+            overflow='hidden'
+            backgroundColor='$background'
+          >
+            {categories.map((category, index) => {
+              const Icon = category.icon
+              const isSelected = selectedCategory === category.id
+              
+              return (
+                <Button
+                  key={category.id}
+                  unstyled
+                  padding='$3'
+                  backgroundColor={isSelected ? category.color : '$background'}
+                  opacity={1}
+                  borderBottomWidth={index < categories.length - 1 ? 1 : 0}
+                  borderBottomColor='$gray5'
+                  onPress={() => {
+                    setSelectedCategory(category.id)
+                    setShowCategoryDropdown(false)
+                  }}
+                >
+                  <XStack space='$3' alignItems='center' opacity={1}>
+                    <Icon size={20} color={category.color} />
+                    <YStack flex={1}>
+                      <Text fontWeight='600' fontSize='$3' color={isSelected ? '$gray12' : '$color'}>
+                        {category.title}
+                      </Text>
+                      <Text fontSize='$2' color={isSelected ? '$color' : '$gray11'}>
+                        {category.description}
+                      </Text>
+                    </YStack>
+                  </XStack>
+                </Button>
+              )
+            })}
+          </YStack>
+        )}
+      </YStack>
 
       {/* Lista de publicaciones */}
       <ScrollView 

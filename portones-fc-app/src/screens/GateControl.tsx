@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react'
-import { ScrollView, View, Animated, PanResponder, Dimensions, Alert } from 'react-native'
+import { ScrollView, View, Animated, PanResponder, Dimensions, Alert, Linking } from 'react-native'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, YStack, Text, Spinner, Circle, XStack, Card } from 'tamagui'
 import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, CreditCard } from '@tamagui/lucide-icons'
@@ -237,6 +237,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   const { signOut, user, profile } = useAuth()
   const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [showCommunityForum, setShowCommunityForum] = useState(false)
+  const [showSupport, setShowSupport] = useState(false)
   const [qrValue, setQrValue] = useState<string | null>(null)
   const [qrExpiresAt, setQrExpiresAt] = useState<Date | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -490,8 +491,8 @@ export const GateControl: React.FC<GateControlProps> = ({
       },
       {
         id: 'colonia',
-        title: 'Foro Comunitario',
-        description: 'Eventos, mensajes y peticiones de la colonia',
+        title: 'Comunidad',
+        description: 'Eventos, mensajes y estados de cuenta de la colonia',
         icon: '💬',
         color: '$purple10',
       },
@@ -704,6 +705,8 @@ export const GateControl: React.FC<GateControlProps> = ({
                   setShowAccessHistory(true)
                 } else if (option.id === 'colonia') {
                   setShowCommunityForum(true)
+                } else if (option.id === 'support') {
+                  setShowSupport(true)
                 } else {
                   // Aquí puedes agregar la lógica para otras opciones
                   Alert.alert(
@@ -746,6 +749,140 @@ export const GateControl: React.FC<GateControlProps> = ({
             </Card>
           ))}
         </YStack>
+      </YStack>
+    )
+  }
+
+  const SupportScreen = () => {
+    const supportEmail = 'soporte@portonesfc.com'
+    const supportPhone = '+52 55 1234 5678'
+    const whatsapp = '+52 55 1234 5678'
+
+    const handleEmail = async () => {
+      const url = `mailto:${supportEmail}`
+      const canOpen = await Linking.canOpenURL(url)
+      if (!canOpen) {
+        Alert.alert('Error', 'No se pudo abrir el correo')
+        return
+      }
+      Linking.openURL(url)
+    }
+
+    const handlePhone = async () => {
+      const url = `tel:${supportPhone}`
+      const canOpen = await Linking.canOpenURL(url)
+      if (!canOpen) {
+        Alert.alert('Error', 'No se pudo abrir el teléfono')
+        return
+      }
+      Linking.openURL(url)
+    }
+
+    const handleWhatsApp = async () => {
+      const url = `https://wa.me/${whatsapp.replace(/\D/g, '')}`
+      const canOpen = await Linking.canOpenURL(url)
+      if (!canOpen) {
+        Alert.alert('Error', 'No se pudo abrir WhatsApp')
+        return
+      }
+      Linking.openURL(url)
+    }
+
+    return (
+      <YStack flex={1} backgroundColor='$background'>
+        <XStack
+          justifyContent='space-between'
+          alignItems='center'
+          padding='$4'
+          paddingTop='$8'
+          backgroundColor='$background'
+          borderBottomWidth={1}
+          borderBottomColor='$gray5'
+        >
+          <XStack alignItems='center' space='$2' flex={1}>
+            <Button
+              size='$3'
+              chromeless
+              icon={<ChevronLeft size={20} />}
+              onPress={() => setShowSupport(false)}
+            />
+            <Text fontSize='$6' fontWeight='bold'>
+              Soporte
+            </Text>
+          </XStack>
+        </XStack>
+
+        <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 16 }}>
+          <YStack space='$4'>
+            <Card elevate size='$3.5' bordered padding='$4'>
+              <YStack space='$2'>
+                <Text fontSize='$5' fontWeight='600'>
+                  ¿Necesitas ayuda?
+                </Text>
+                <Text fontSize='$3' color='$gray11'>
+                  Contáctanos por cualquiera de estos medios.
+                </Text>
+              </YStack>
+            </Card>
+
+            <Card elevate size='$3.5' bordered padding='$4'>
+              <XStack space='$3' alignItems='center'>
+                <Circle size={44} backgroundColor='$blue10' elevate>
+                  <Text fontSize='$5' color='white'>@</Text>
+                </Circle>
+                <YStack flex={1}>
+                  <Text fontSize='$4' fontWeight='600'>
+                    Correo
+                  </Text>
+                  <Text fontSize='$3' color='$gray11'>
+                    {supportEmail}
+                  </Text>
+                </YStack>
+                <Button size='$3' theme='blue' onPress={handleEmail}>
+                  Escribir
+                </Button>
+              </XStack>
+            </Card>
+
+            <Card elevate size='$3.5' bordered padding='$4'>
+              <XStack space='$3' alignItems='center'>
+                <Circle size={44} backgroundColor='$green10' elevate>
+                  <Text fontSize='$5' color='white'>☎</Text>
+                </Circle>
+                <YStack flex={1}>
+                  <Text fontSize='$4' fontWeight='600'>
+                    Teléfono
+                  </Text>
+                  <Text fontSize='$3' color='$gray11'>
+                    {supportPhone}
+                  </Text>
+                </YStack>
+                <Button size='$3' theme='green' onPress={handlePhone}>
+                  Llamar
+                </Button>
+              </XStack>
+            </Card>
+
+            <Card elevate size='$3.5' bordered padding='$4'>
+              <XStack space='$3' alignItems='center'>
+                <Circle size={44} backgroundColor='$purple10' elevate>
+                  <Text fontSize='$5' color='white'>💬</Text>
+                </Circle>
+                <YStack flex={1}>
+                  <Text fontSize='$4' fontWeight='600'>
+                    WhatsApp
+                  </Text>
+                  <Text fontSize='$3' color='$gray11'>
+                    {whatsapp}
+                  </Text>
+                </YStack>
+                <Button size='$3' theme='purple' onPress={handleWhatsApp}>
+                  Abrir
+                </Button>
+              </XStack>
+            </Card>
+          </YStack>
+        </ScrollView>
       </YStack>
     )
   }
@@ -833,6 +970,12 @@ export const GateControl: React.FC<GateControlProps> = ({
         authToken={authToken}
         onBack={() => setShowCommunityForum(false)}
       />
+    )
+  }
+
+  if (showSupport) {
+    return (
+      <SupportScreen />
     )
   }
 
