@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS support_messages (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   user_email TEXT NOT NULL,
   apartment_unit TEXT,
-  colonia_name TEXT,
+  colonia_id UUID REFERENCES colonias(id) ON DELETE SET NULL,
   message TEXT NOT NULL,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'resolved')),
   created_at TIMESTAMPTZ DEFAULT NOW(),

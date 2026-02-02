@@ -1575,13 +1575,9 @@ fastify.post('/support/send', async (request, reply) => {
     // Get user profile
     const { data: profile } = await supabaseAdmin
       .from('profiles')
-      .select('apartment_unit, colonia_id, colonias!inner(nombre)')
+      .select('apartment_unit, colonia_id')
       .eq('id', user.id)
       .single()
-
-    const coloniaName = profile?.colonias && Array.isArray(profile.colonias) && profile.colonias.length > 0
-      ? (profile.colonias[0] as any).nombre
-      : null
 
     // Save message to database (creates a support_messages table)
     const { data: supportMessage, error: insertError } = await supabaseAdmin
@@ -1589,8 +1585,8 @@ fastify.post('/support/send', async (request, reply) => {
       .insert({
         user_id: user.id,
         user_email: user.email,
-        apartment_unit: profile?.apartment_unit,
-        colonia_name: coloniaName,
+        apartment_unit: profile?.apartment_unit || null,
+        colonia_id: profile?.colonia_id || null,
         message: message.trim(),
         created_at: new Date().toISOString()
       })
