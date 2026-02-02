@@ -187,6 +187,148 @@ fastify.get('/gates', async (request, reply) => {
   }
 })
 
+// Access history route
+fastify.get('/access/history', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { limit: limitRaw } = request.query as any
+
+    const parsedLimit = Number(limitRaw)
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 200)
+      : 50
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role, apartment_unit')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    let query = supabaseAdmin
+      .from('access_logs')
+      .select('id, user_id, action, status, method, timestamp, gate_id', {
+        count: 'exact'
+      })
+      .order('timestamp', { ascending: false })
+      .limit(limit)
+
+    if (profile.role !== 'admin') {
+      query = query.eq('user_id', user.id)
+    }
+
+    const { data: logs, error: logsError, count } = await query
+
+    if (logsError) {
+      throw logsError
+    }
+
+    const gateIds = Array.from(
+      new Set(
+        (logs ?? [])
+          .map((log: any) => log.gate_id)
+          .filter((id: any) => typeof id === 'number')
+      )
+    )
+
+    const { data: gatesData, error: gatesError } = gateIds.length
+      ? await supabaseAdmin.from('gates').select('id, name, type').in('id', gateIds)
+      : { data: [], error: null }
+
+    if (gatesError) {
+      throw gatesError
+    }
+
+    // Get user emails from auth.users
+    const userIds = Array.from(
+      new Set((logs ?? []).map((log: any) => log.user_id).filter(Boolean))
+    )
+
+    let emailsMap = new Map<string, string>()
+    
+    if (userIds.length > 0) {
+      // Get emails from auth.users using admin client
+      const { data: usersData, error: usersError } = await supabaseAdmin.auth.admin.listUsers()
+      
+      if (!usersError && usersData?.users) {
+        usersData.users.forEach((authUser: any) => {
+          if (userIds.includes(authUser.id)) {
+            emailsMap.set(authUser.id, authUser.email || '')
+          }
+        })
+      }
+    }
+
+    let profilesMap = new Map<string, { apartment_unit: string | null }>()
+
+    if (profile.role === 'admin') {
+      const profileUserIds = Array.from(
+        new Set((logs ?? []).map((log: any) => log.user_id).filter(Boolean))
+      )
+
+      if (profileUserIds.length) {
+        const { data: profilesData, error: profilesError } = await supabaseAdmin
+          .from('profiles')
+          .select('id, apartment_unit')
+          .in('id', profileUserIds)
+
+        if (profilesError) {
+          throw profilesError
+        }
+
+        profilesData?.forEach((p: any) => {
+          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null })
+        })
+      }
+    } else {
+      profilesMap.set(user.id, { apartment_unit: profile.apartment_unit ?? null })
+    }
+
+    const gatesMap = new Map<number, { name?: string; type?: string }>()
+    gatesData?.forEach((g: any) => {
+      gatesMap.set(g.id, { name: g.name, type: g.type })
+    })
+
+    const records = (logs ?? []).map((log: any) => {
+      const gateInfo = gatesMap.get(log.gate_id) || {}
+      const profileInfo = profilesMap.get(log.user_id) || { apartment_unit: null }
+      const userEmail = emailsMap.get(log.user_id) || null
+
+      return {
+      id: log.id,
+      gate_id: log.gate_id,
+      gate_name: gateInfo.name || (log.gate_id ? `Portón ${log.gate_id}` : 'Portón'),
+      gate_type: gateInfo.type || 'ENTRADA',
+      user_id: log.user_id,
+      user_email: userEmail,
+      apartment_unit: profileInfo.apartment_unit ?? null,
+      action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
+      timestamp: log.timestamp,
+      method: log.method || 'APP',
+      status: log.status
+    }
+    })
+
+    reply.send({
+      records,
+      total: count ?? records.length
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /access/history')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to fetch access history'
+    })
+  }
+})
+
 // Ruta de prueba MQTT
 fastify.post('/dev/test-mqtt', async (request, reply) => {
   try {
@@ -295,10 +437,14 @@ fastify.post('/payment/tokenize', async (request, reply) => {
       cvv2?: string
     }
 
+    // Log para debugging
+    fastify.log.info({ card_number, holder_name, expiration_month, expiration_year, cvv2 }, 'Datos recibidos en tokenize')
+
     if (!card_number || !expiration_month || !expiration_year || !cvv2) {
+      fastify.log.warn('Faltan datos de tarjeta. card_number: ' + !!card_number + ', expiration_month: ' + !!expiration_month + ', expiration_year: ' + !!expiration_year + ', cvv2: ' + !!cvv2)
       reply.status(400).send({
         error: 'Bad Request',
-        message: 'Faltan datos de tarjeta'
+        message: 'Faltan datos de tarjeta: card_number=' + !!card_number + ', expiration_month=' + !!expiration_month + ', expiration_year=' + !!expiration_year + ', cvv2=' + !!cvv2
       })
       return
     }
@@ -333,7 +479,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     // Obtener colonia y monto de mantenimiento
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, apartment_unit, colonias(id, nombre, maintenance_monthly_amount)')
+      .select('colonia_id, apartment_unit, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
       .eq('id', user.id)
       .single() as any
 
@@ -374,11 +520,13 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     const {
       tokenId,
       deviceSessionId,
-      cardholderName
+      cardholderName,
+      amount
     } = request.body as {
       tokenId?: string
       deviceSessionId?: string
       cardholderName?: string
+      amount?: number
     }
 
     if (!tokenId) {
@@ -389,11 +537,14 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       return
     }
 
+    // Usar el amount del frontend si viene, sino usar amountToCharge calculado
+    const finalAmount = amount && amount > 0 ? amount : amountToCharge
+
     // Create charge via Openpay API using tokenId
     const chargePayload = {
       source_id: tokenId,
       method: 'card',
-      amount: amountToCharge,
+      amount: finalAmount,
       currency: maintenanceCurrency,
       description: 'Pago de mantenimiento mensual',
       device_session_id: deviceSessionId || undefined,
@@ -405,6 +556,9 @@ fastify.post('/payment/maintenance', async (request, reply) => {
 
     const charge = await openpayRequest('POST', '/charges', chargePayload)
 
+    // Log para debugging
+    fastify.log.info({ charge }, 'Respuesta de Openpay al crear charge')
+
     // Guardar el pago en la base de datos
     const currentDate = new Date()
     const { error: paymentError } = await supabaseAdmin
@@ -413,7 +567,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
         user_id: user.id,
         colonia_id: coloniaId,
         apartment_unit: apartmentUnit,
-        amount: amountToCharge,
+        amount: finalAmount,
         payment_date: currentDate.toISOString(),
         period_month: currentDate.getMonth() + 1,
         period_year: currentDate.getFullYear(),
@@ -426,11 +580,38 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       fastify.log.error({ error: paymentError }, 'Error al guardar el pago en la base de datos')
     }
 
+    // Actualizar perfil: resetear adeudo_meses a 0 y cambiar role a 'user'
+    // Openpay puede devolver 'completed' o 'success', vamos a aceptar ambos
+    const chargeSuccessful = charge.status === 'completed' || charge.status === 'success' || !charge.error
+    
+    fastify.log.info('Verificando si pago fue exitoso. Status: ' + charge.status + ', Successful: ' + chargeSuccessful)
+    
+    if (chargeSuccessful) {
+      fastify.log.info('Pago completado para usuario ' + user.id + '. Actualizando perfil...')
+      const { data: updateData, error: updateError } = await supabaseAdmin
+        .from('profiles')
+        .update({
+          adeudo_meses: 0,
+          role: 'user',
+          updated_at: currentDate.toISOString()
+        })
+        .eq('id', user.id)
+        .select()
+
+      if (updateError) {
+        fastify.log.error({ error: updateError }, 'Error al actualizar el perfil después del pago')
+      } else {
+        fastify.log.info({ data: updateData }, 'Perfil actualizado exitosamente para usuario ' + user.id)
+      }
+    } else {
+      fastify.log.warn('Pago pendiente o fallido para usuario ' + user.id + ' (status: ' + charge.status + ')')
+    }
+
     reply.send({
       ok: true,
       chargeId: charge.id,
       status: charge.status,
-      amount: amountToCharge,
+      amount: finalAmount,
       currency: maintenanceCurrency,
       colonia_id: profile?.colonia_id || null,
       colonia_nombre: coloniaData?.nombre || null
@@ -455,14 +636,24 @@ fastify.get('/payment/status', async (request, reply) => {
     // Obtener colonia y casa (apartment_unit)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, apartment_unit, colonias(maintenance_monthly_amount)')
+      .select('colonia_id, apartment_unit, colonias!fk_profiles_colonia(maintenance_monthly_amount)')
       .eq('id', user.id)
       .single() as any
 
     if (profileError) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'No se pudo obtener el perfil del usuario'
+      fastify.log.warn({ error: profileError }, 'No se pudo obtener el perfil del usuario')
+      reply.send({
+        lastPaymentDate: null,
+        lastPaymentAmount: null,
+        nextPaymentDue: null,
+        isPaid: false,
+        daysUntilDue: null,
+        currentPeriod: {
+          month: new Date().getMonth() + 1,
+          year: new Date().getFullYear()
+        },
+        maintenanceAmount: null,
+        reason: 'profile_not_found'
       })
       return
     }
@@ -473,9 +664,18 @@ fastify.get('/payment/status', async (request, reply) => {
     const apartmentUnit = profile?.apartment_unit || null
 
     if (!coloniaId || !apartmentUnit) {
-      reply.status(400).send({
-        error: 'Bad Request',
-        message: 'No hay colonia o casa asignada al usuario'
+      reply.send({
+        lastPaymentDate: null,
+        lastPaymentAmount: null,
+        nextPaymentDue: null,
+        isPaid: false,
+        daysUntilDue: null,
+        currentPeriod: {
+          month: new Date().getMonth() + 1,
+          year: new Date().getFullYear()
+        },
+        maintenanceAmount,
+        reason: 'missing_colonia_or_apartment'
       })
       return
     }
@@ -542,13 +742,16 @@ fastify.get('/profile', async (request, reply) => {
     // Get user profile
     let { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('*, colonias(id, nombre, maintenance_monthly_amount)')
+      .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
       .eq('id', user.id)
       .single()
 
     // If profile doesn't exist, create it with 'user' role
-    if (profileError && profileError.code === 'PGRST116') {
-      // PGRST116 = no rows returned
+    if (!profile) {
+      if (profileError && profileError.code !== 'PGRST116') {
+        fastify.log.warn({ error: profileError }, 'Profile lookup returned error, attempting auto-create')
+      }
+
       fastify.log.info(`Profile for user ${user.id} not found, creating one`)
       const { data: newProfile, error: createError } = await supabaseAdmin
         .from('profiles')
@@ -562,22 +765,35 @@ fastify.get('/profile', async (request, reply) => {
         .single()
 
       if (createError) {
-        fastify.log.error({ error: createError }, 'Failed to create profile')
-        reply.status(500).send({
-          error: 'Server Error',
-          message: 'Failed to create user profile'
-        })
-        return
-      }
+        if ((createError as any)?.code === '23505') {
+          // Profile was created by another request; re-fetch it
+          const { data: existingProfile, error: fetchError } = await supabaseAdmin
+            .from('profiles')
+            .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
+            .eq('id', user.id)
+            .single()
 
-      profile = newProfile
-    } else if (profileError || !profile) {
-      fastify.log.error({ error: profileError }, 'Profile not found')
-      reply.status(404).send({
-        error: 'Not Found',
-        message: 'User profile not found'
-      })
-      return
+          if (fetchError || !existingProfile) {
+            fastify.log.error({ error: fetchError }, 'Failed to fetch profile after duplicate insert')
+            reply.status(500).send({
+              error: 'Server Error',
+              message: 'Failed to fetch user profile'
+            })
+            return
+          }
+
+          profile = existingProfile
+        } else {
+          fastify.log.error({ error: createError }, 'Failed to create profile')
+          reply.status(500).send({
+            error: 'Server Error',
+            message: 'Failed to create user profile'
+          })
+          return
+        }
+      } else {
+        profile = newProfile
+      }
     }
 
     reply.send({
@@ -587,6 +803,7 @@ fastify.get('/profile', async (request, reply) => {
       apartment_unit: profile.apartment_unit,
       colonia_id: profile.colonia_id,
       colonia: profile.colonias || null,
+      adeudo_meses: profile.adeudo_meses || 0,
       created_at: profile.created_at,
       updated_at: profile.updated_at
     })
@@ -705,6 +922,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_REVOKED',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -729,6 +947,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -746,6 +965,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -764,6 +984,7 @@ fastify.post('/gate/open', async (request, reply) => {
         user_id: user.id,
         action: 'OPEN_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -809,6 +1030,7 @@ fastify.post('/gate/open', async (request, reply) => {
       user_id: user.id,
       action: 'OPEN_GATE',
       status: 'SUCCESS',
+      method: 'APP',
       gate_id: gateId,
       ip_address: request.ip
     })
@@ -877,6 +1099,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_REVOKED',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -901,6 +1124,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -918,6 +1142,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -936,6 +1161,7 @@ fastify.post('/gate/close', async (request, reply) => {
         user_id: user.id,
         action: 'CLOSE_GATE',
         status: 'DENIED_NO_ACCESS',
+        method: 'APP',
         gate_id: gateId,
         ip_address: request.ip
       })
@@ -981,6 +1207,7 @@ fastify.post('/gate/close', async (request, reply) => {
       user_id: user.id,
       action: 'CLOSE_GATE',
       status: 'SUCCESS',
+      method: 'APP',
       gate_id: gateId,
       ip_address: request.ip
     })

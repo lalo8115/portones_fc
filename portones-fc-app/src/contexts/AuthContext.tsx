@@ -26,6 +26,7 @@ interface UserProfile {
   colonia: Colonia | null
   created_at: string
   updated_at: string
+  adeudo_meses?: number
 }
 
 interface AuthContextType {
@@ -40,6 +41,7 @@ interface AuthContextType {
   signOut: () => Promise<void>
   loading: boolean
   refreshProfile: () => Promise<void>
+  getToken: () => Promise<string | null>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -178,6 +180,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return () => clearTimeout(timer)
     }
   }, [session, profile, loading])
+
+  // Auto-refresh token before it expires
+  useEffect(() => {
+    if (!session) return
+
+    // Calculate time until token expires (refresh 5 minutes before expiration)
+    const expiresAt = session.expires_at
+    if (!expiresAt) return
+
+    const expiresIn = (expiresAt * 1000) - Date.now()
+    const refreshTime = expiresIn - (5 * 60 * 1000) // 5 minutes before expiration
+
+    if (refreshTime <= 0) {
+      // Token already expired or about to expire, refresh immediately
+      supabase.auth.refreshSession().catch((err) => {
+        console.error('Failed to refresh session immediately:', err)
+      })
+      return
+    }
+
+    // Set timer to refresh before expiration
+    const timer = setTimeout(async () => {
+      try {
+        const { error } = await supabase.auth.refreshSession()
+        if (error) {
+          console.error('Failed to refresh session:', error)
+        }
+      } catch (err) {
+        console.error('Error refreshing session:', err)
+      }
+    }, refreshTime)
+
+    return () => clearTimeout(timer)
+  }, [session])
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -451,6 +487,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }
 
+  const getToken = async (): Promise<string | null> => {
+    // Check if we have a session
+    if (!session) {
+      return null
+    }
+
+    // Check if token is about to expire (within 1 minute)
+    const expiresAt = session.expires_at
+    if (expiresAt) {
+      const expiresIn = (expiresAt * 1000) - Date.now()
+      if (expiresIn < 60 * 1000) {
+        // Token about to expire, refresh it
+        try {
+          const { data, error } = await supabase.auth.refreshSession()
+          if (error) throw error
+          return data.session?.access_token || null
+        } catch (err) {
+          console.error('Failed to refresh token:', err)
+          return session.access_token
+        }
+      }
+    }
+
+    return session.access_token
+  }
+
   const value = {
     session,
     user: session?.user ?? null,
@@ -462,7 +524,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     updateApartmentUnit,
     signOut,
     loading,
-    refreshProfile
+    refreshProfile,
+    getToken
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

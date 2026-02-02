@@ -8,19 +8,21 @@ interface MaintenancePaymentScreenProps {
   apiUrl: string
   authToken: string
   onBack: () => void
+  onSuccess?: () => void
 }
 
 interface PaymentStatus {
-  status: 'idle' | 'loading' | 'success' | 'error'
+  status: 'idle' | 'loading' | 'error' | 'redirecting'
   message: string
 }
 
 export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> = ({
   apiUrl,
   authToken,
-  onBack
+  onBack,
+  onSuccess
 }) => {
-  const { user, profile } = useAuth()
+  const { user, profile, refreshProfile } = useAuth()
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>({
     status: 'idle',
     message: ''
@@ -34,6 +36,24 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
   const monthlyAmount = 500 // Fallback en caso de que no venga de la colonia
   const currency = 'MXN'
   const amountToPay = profile?.colonia?.maintenance_monthly_amount ?? monthlyAmount
+  const adeudoMeses = profile?.adeudo_meses ?? 0
+  const totalAdeudo = amountToPay * adeudoMeses
+
+  // Función para formatear número de tarjeta (xxxx xxxx xxxx xxxx)
+  const formatCardNumber = (value: string) => {
+    const cleaned = value.replace(/\s+/g, '')
+    const formatted = cleaned.replace(/(\d{4})(?=\d)/g, '$1 ')
+    return formatted.slice(0, 19) // Máximo 16 dígitos + 3 espacios
+  }
+
+  // Función para formatear fecha de expiración (xx/xx)
+  const formatExpiryDate = (value: string) => {
+    const cleaned = value.replace(/\D/g, '')
+    if (cleaned.length <= 2) {
+      return cleaned
+    }
+    return cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4)
+  }
 
   // Obtener Openpay public key del backend al cargar
   useEffect(() => {
@@ -75,6 +95,63 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
     return ''
   }
 
+  // Verificar que el perfil se actualizó en la base de datos
+  const verifyProfileUpdate = async () => {
+    let attempts = 0
+    const maxAttempts = 15 // Máximo 15 intentos (aprox 15 segundos)
+    const pollInterval = 1000 // Esperar 1 segundo entre intentos
+
+    const checkProfile = async () => {
+      try {
+        const response = await fetch(`${apiUrl}/profile`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          console.log('Perfil verificado:', data)
+
+          // Si el rol cambió a 'user', refrescar el perfil local y redirigir
+          if (data.role === 'user' || data.role === 'resident') {
+            console.log('Rol actualizado a:', data.role)
+            
+            // Refrescar el perfil en el contexto de autenticación
+            await refreshProfile()
+            console.log('Perfil local actualizado')
+            
+            if (onSuccess) {
+              onSuccess()
+            } else {
+              onBack()
+            }
+            return true
+          }
+        }
+      } catch (error) {
+        console.error('Error verificando perfil:', error)
+      }
+
+      attempts++
+      if (attempts < maxAttempts) {
+        setTimeout(checkProfile, pollInterval)
+      } else {
+        // Si llegamos al máximo de intentos, refrescar perfil y redirigir de todas formas
+        console.warn('Máximo de intentos alcanzado, refrescando perfil y redirigiendo')
+        await refreshProfile()
+        if (onSuccess) {
+          onSuccess()
+        } else {
+          onBack()
+        }
+      }
+    }
+
+    checkProfile()
+  }
+
   // Tokenizar tarjeta vía API
   const tokenizeCard = async (
     cardNumber: string,
@@ -88,37 +165,68 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
       // Openpay expects 2-digit year (01-99)
       const expirationYear = parseInt(yearStr, 10) % 100
 
+      const payload = {
+        card_number: cardNumber.replace(/\s+/g, ''),
+        holder_name: cardholderName,
+        expiration_month: expirationMonth,
+        expiration_year: expirationYear,
+        cvv2: cvv
+      }
+
+      console.log('Enviando payload a tokenize:', payload)
+
       const response = await fetch(`${apiUrl}/payment/tokenize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          card_number: cardNumber.replace(/\s+/g, ''),
-          holder_name: cardholderName,
-          expiration_month: expirationMonth,
-          expiration_year: expirationYear,
-          cvv2: cvv
-        })
+        body: JSON.stringify(payload)
       })
 
+      const data = await response.json()
+      console.log('Respuesta de tokenize:', data)
+
       if (response.ok) {
-        const data = await response.json()
         return data.tokenId || data.id
       } else {
-        const error = await response.json()
-        throw new Error(error.message || 'Error al tokenizar tarjeta')
+        throw new Error(data.message || 'Error al tokenizar tarjeta')
       }
     } catch (error) {
+      console.error('Error en tokenizeCard:', error)
       throw error
     }
   }
 
   const handlePayment = async () => {
-    if (!cardholderName || !cardNumber || !expiryDate || !cvv) {
+    // Validar que todos los campos estén completos
+    if (!cardholderName || !cardholderName.trim()) {
       setPaymentStatus({
         status: 'error',
-        message: 'Por favor completa todos los campos'
+        message: 'Por favor ingresa el nombre en la tarjeta'
+      })
+      return
+    }
+
+    if (!cardNumber || cardNumber.replace(/\s+/g, '').length < 13) {
+      setPaymentStatus({
+        status: 'error',
+        message: 'Por favor ingresa un número de tarjeta válido'
+      })
+      return
+    }
+
+    if (!expiryDate || !expiryDate.includes('/') || expiryDate.length < 5) {
+      setPaymentStatus({
+        status: 'error',
+        message: 'Por favor ingresa la fecha de vencimiento en formato MM/AA'
+      })
+      return
+    }
+
+    if (!cvv || cvv.length < 3) {
+      setPaymentStatus({
+        status: 'error',
+        message: 'Por favor ingresa un CVV válido'
       })
       return
     }
@@ -130,12 +238,15 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
 
     try {
       // Paso 1: Generar device session ID
+      console.log('Paso 1: Generando device session ID')
       const deviceSessionId = await generateDeviceSessionId()
       if (!deviceSessionId) {
         throw new Error('No se pudo generar sesión de dispositivo')
       }
+      console.log('Device session ID generado:', deviceSessionId)
 
       // Paso 2: Tokenizar tarjeta
+      console.log('Paso 2: Tokenizando tarjeta')
       const tokenId = await tokenizeCard(
         cardNumber,
         expiryDate,
@@ -145,8 +256,10 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
       if (!tokenId) {
         throw new Error('No se pudo tokenizar la tarjeta')
       }
+      console.log('Token ID obtenido:', tokenId)
 
-      // Paso 3: Enviar al backend solo token + device session
+      // Paso 3: Enviar al backend solo token + device session + amount
+      console.log('Paso 3: Enviando pago al backend')
       const response = await fetch(`${apiUrl}/payment/maintenance`, {
         method: 'POST',
         headers: {
@@ -156,19 +269,19 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
         body: JSON.stringify({
           tokenId,
           deviceSessionId,
-          cardholderName
+          cardholderName,
+          amount: totalAdeudo
         })
       })
 
       if (!response.ok) {
         const error = await response.json()
+        console.error('Error en respuesta de pago:', error)
         throw new Error(error.message || 'Error al procesar el pago')
       }
 
-      setPaymentStatus({
-        status: 'success',
-        message: 'Pago realizado exitosamente'
-      })
+      const paymentResult = await response.json()
+      console.log('Pago procesado exitosamente:', paymentResult)
 
       // Limpiar campos
       setCardholderName('')
@@ -176,14 +289,20 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
       setExpiryDate('')
       setCvv('')
 
-      // Regresar después de 2 segundos
-      setTimeout(() => {
-        onBack()
-      }, 2000)
+      // Mostrar pantalla de redirigiendo y verificar actualización en background
+      setPaymentStatus({
+        status: 'redirecting',
+        message: 'Redirigiendo...'
+      })
+
+      // Iniciar verificación inmediatamente
+      verifyProfileUpdate()
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      console.error('Error en handlePayment:', errorMessage, error)
       setPaymentStatus({
         status: 'error',
-        message: error instanceof Error ? error.message : 'Error desconocido'
+        message: errorMessage
       })
     }
   }
@@ -237,14 +356,19 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
           </Card>
 
           {/* Amount Summary */}
-          <Card elevate size='$4' bordered padding='$4' backgroundColor='$blue2'>
+          <Card elevate size='$4' bordered padding='$4' backgroundColor={adeudoMeses > 0 ? '$red2' : '$blue2'}>
             <YStack space='$2' alignItems='center'>
               <Text fontSize='$3' color='$gray11'>
-                Cuota Mensual de Mantenimiento
+                {adeudoMeses > 0 ? 'Monto a Pagar' : 'Cuota Mensual de Mantenimiento'}
               </Text>
-              <Text fontSize='$8' fontWeight='bold' color='$blue11'>
-                ${amountToPay.toFixed(2)}
+              <Text fontSize='$8' fontWeight='bold' color={adeudoMeses > 0 ? '$red11' : '$blue11'}>
+                ${totalAdeudo.toFixed(2)}
               </Text>
+              {adeudoMeses > 0 && (
+                <Text fontSize='$2' color='$gray10' marginTop='$2'>
+                  {adeudoMeses} meses × ${amountToPay.toFixed(2)}
+                </Text>
+              )}
               <Text fontSize='$2' color='$gray10'>
                 {currency}
               </Text>
@@ -252,7 +376,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
           </Card>
 
           {/* Payment Form */}
-          {paymentStatus.status !== 'success' && (
+          {paymentStatus.status !== 'redirecting' && (
             <YStack space='$3'>
               <Text fontSize='$4' fontWeight='bold'>
                 Información de Pago
@@ -278,7 +402,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
                 <Input
                   placeholder='1234 5678 9012 3456'
                   value={cardNumber}
-                  onChangeText={setCardNumber}
+                  onChangeText={(value) => setCardNumber(formatCardNumber(value))}
                   keyboardType='numeric'
                   maxLength={19}
                   editable={paymentStatus.status !== 'loading'}
@@ -294,7 +418,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
                   <Input
                     placeholder='MM/AA'
                     value={expiryDate}
-                    onChangeText={setExpiryDate}
+                    onChangeText={(value) => setExpiryDate(formatExpiryDate(value))}
                     keyboardType='numeric'
                     maxLength={5}
                     editable={paymentStatus.status !== 'loading'}
@@ -338,7 +462,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
           )}
 
           {/* Status Messages */}
-          {paymentStatus.status === 'success' && (
+          {paymentStatus.status === 'redirecting' && (
             <YStack
               flex={1}
               justifyContent='center'
@@ -353,7 +477,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
                 <Text fontSize='$4' color='$gray11' textAlign='center'>
                   Tu cuota de mantenimiento ha sido pagada correctamente
                 </Text>
-                <Text fontSize='$3' color='$gray10' textAlign='center' marginTop='$2'>
+                <Text fontSize='$3' color='$blue10' textAlign='center' marginTop='$3'>
                   Redirigiendo...
                 </Text>
               </YStack>
