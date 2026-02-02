@@ -479,7 +479,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     // Obtener colonia y monto de mantenimiento
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, apartment_unit, colonias(id, nombre, maintenance_monthly_amount)')
+      .select('colonia_id, apartment_unit, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
       .eq('id', user.id)
       .single() as any
 
