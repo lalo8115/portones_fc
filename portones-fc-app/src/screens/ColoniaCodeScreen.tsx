@@ -44,8 +44,7 @@ export const ColoniaCodeScreen: React.FC = () => {
     setLoading(true)
 
     try {
-      const apartmentUnit = `${selectedStreet} ${externalNumber}`
-      await updateApartmentUnit(apartmentUnit.trim())
+      await updateApartmentUnit(selectedStreet, externalNumber, 1)
       setSuccess(true)
     } catch (err: any) {
       setError(err.message || 'No se pudo actualizar el domicilio')

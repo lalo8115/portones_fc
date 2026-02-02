@@ -21,12 +21,12 @@ interface UserProfile {
   id: string
   email: string
   role: 'admin' | 'resident' | 'revoked'
-  apartment_unit: string | null
+  house_id: string | null
   colonia_id: string | null
   colonia: Colonia | null
+  house?: any | null
   created_at: string
   updated_at: string
-  adeudo_meses?: number
 }
 
 interface AuthContextType {
@@ -37,7 +37,7 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
   joinColonia: (coloniaCode: string) => Promise<UserProfile>
-  updateApartmentUnit: (apartmentUnit: string) => Promise<UserProfile>
+  updateApartmentUnit: (street: string, externalNumber: string, numberOfPeople?: number) => Promise<UserProfile>
   signOut: () => Promise<void>
   loading: boolean
   refreshProfile: () => Promise<void>
@@ -256,7 +256,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return data
   }
 
-  const updateApartmentUnit = async (apartmentUnit: string) => {
+  const updateApartmentUnit = async (street: string, externalNumber: string, numberOfPeople: number = 1) => {
     if (!session?.access_token) {
       throw new Error('Sesión no encontrada, vuelve a iniciar sesión')
     }
@@ -267,12 +267,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         Authorization: `Bearer ${session.access_token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ apartment_unit: apartmentUnit })
+      body: JSON.stringify({ 
+        street, 
+        external_number: externalNumber,
+        number_of_people: numberOfPeople 
+      })
     })
 
     if (!response.ok) {
       const errorBody = await response.json().catch(() => null)
-      throw new Error(errorBody?.message || 'No se pudo actualizar el número de casa')
+      throw new Error(errorBody?.message || 'No se pudo actualizar el domicilio')
     }
 
     const data = await response.json()
@@ -519,6 +523,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       throw new Error('Sesión no encontrada, vuelve a iniciar sesión')
     }
 
+    // First validate colonia and get streets
     const response = await fetch(`${apiUrl}/colonias/${coloniaId}`, {
       method: 'GET',
       headers: {
@@ -533,6 +538,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
 
     const data = await response.json()
+
+    // Now update profile with colonia_id using joinColonia
+    try {
+      const updatedProfile = await joinColonia(coloniaId)
+      setProfile(updatedProfile)
+    } catch (err) {
+      // Log error but don't fail - we still have the streets
+      console.error('Error updating colonia_id:', err)
+    }
+
     return data.streets || []
   }
 

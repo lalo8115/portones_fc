@@ -20,17 +20,17 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'revoked')),
-  apartment_unit TEXT,
+  house_id UUID REFERENCES houses(id) ON DELETE SET NULL,
   colonia_id UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Add comments
-COMMENT ON TABLE profiles IS 'User profiles with roles and apartment info';
+COMMENT ON TABLE profiles IS 'User profiles with roles and house info';
 COMMENT ON COLUMN profiles.id IS 'References auth.users(id)';
 COMMENT ON COLUMN profiles.role IS 'User role: user, admin, or revoked';
-COMMENT ON COLUMN profiles.apartment_unit IS 'Apartment unit identifier';
+COMMENT ON COLUMN profiles.house_id IS 'References houses table';
 COMMENT ON COLUMN profiles.colonia_id IS 'References colonias table';
 
 -- ==========================================
@@ -61,6 +61,15 @@ COMMENT ON COLUMN access_logs.gate_id IS 'ID del portón asociado (1..4)';
 CREATE INDEX IF NOT EXISTS idx_access_logs_user_id ON access_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_logs_timestamp ON access_logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+CREATE INDEX IF NOT EXISTS idx_profiles_house_id ON profiles(house_id);
+
+-- Update profiles table for existing installations (idempotent)
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS house_id UUID REFERENCES houses(id) ON DELETE SET NULL;
+
+-- Drop old apartment_unit column if it exists (for clean migrations)
+ALTER TABLE profiles
+  DROP COLUMN IF EXISTS apartment_unit;
 
 -- ==========================================
 -- CREATE COLONIAS TABLE
@@ -151,6 +160,7 @@ CREATE TABLE IF NOT EXISTS houses (
   street TEXT NOT NULL,
   external_number TEXT NOT NULL,
   number_of_people SMALLINT NOT NULL DEFAULT 1 CHECK (number_of_people > 0),
+  adeudos_months SMALLINT NOT NULL DEFAULT 0 CHECK (adeudos_months >= 0),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -162,6 +172,7 @@ COMMENT ON COLUMN houses.colonia_id IS 'References colonias table';
 COMMENT ON COLUMN houses.street IS 'Street name where the house is located';
 COMMENT ON COLUMN houses.external_number IS 'External house/unit number';
 COMMENT ON COLUMN houses.number_of_people IS 'Number of people living in the house';
+COMMENT ON COLUMN houses.adeudos_months IS 'Number of months with pending maintenance payments';
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_houses_colonia_id ON houses(colonia_id);

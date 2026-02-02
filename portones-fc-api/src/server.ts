@@ -1347,30 +1347,115 @@ fastify.post('/gate/close', async (request, reply) => {
 fastify.put('/profile/apartment-unit', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { apartment_unit } = request.body as { apartment_unit?: string }
+    const { street, external_number, number_of_people } = request.body as { 
+      street?: string
+      external_number?: string
+      number_of_people?: number
+    }
 
-    if (!apartment_unit || typeof apartment_unit !== 'string' || !apartment_unit.trim()) {
+    // Validate inputs
+    if (!street || typeof street !== 'string' || !street.trim()) {
       reply.status(400).send({
         error: 'Bad Request',
-        message: 'El número de casa es requerido'
+        message: 'La calle es requerida'
       })
       return
     }
 
-    const trimmedUnit = apartment_unit.trim()
+    if (!external_number || typeof external_number !== 'string' || !external_number.trim()) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El número exterior es requerido'
+      })
+      return
+    }
 
-    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+    // Get user's current profile to get colonia_id
+    const { data: userProfile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .update({ apartment_unit: trimmedUnit, updated_at: new Date().toISOString() })
+      .select('colonia_id, house_id')
       .eq('id', user.id)
-      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
       .single()
 
-    if (updateError || !updatedProfile) {
-      fastify.log.error({ error: updateError }, 'Error updating apartment_unit')
+    if (profileError || !userProfile) {
+      fastify.log.error({ error: profileError }, 'Error fetching user profile')
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Perfil de usuario no encontrado'
+      })
+      return
+    }
+
+    if (!userProfile.colonia_id) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El usuario debe estar registrado en una colonia primero'
+      })
+      return
+    }
+
+    // Create or update house
+    let house
+    if (userProfile.house_id) {
+      // Update existing house
+      const { data: updatedHouse, error: updateError } = await supabaseAdmin
+        .from('houses')
+        .update({
+          street: street.trim(),
+          external_number: external_number.trim(),
+          number_of_people: number_of_people || 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userProfile.house_id)
+        .select('*')
+        .single()
+
+      if (updateError || !updatedHouse) {
+        fastify.log.error({ error: updateError }, 'Error updating house')
+        reply.status(500).send({
+          error: 'Server Error',
+          message: 'No se pudo actualizar la casa'
+        })
+        return
+      }
+      house = updatedHouse
+    } else {
+      // Create new house
+      const { data: newHouse, error: createError } = await supabaseAdmin
+        .from('houses')
+        .insert({
+          colonia_id: userProfile.colonia_id,
+          street: street.trim(),
+          external_number: external_number.trim(),
+          number_of_people: number_of_people || 1
+        })
+        .select('*')
+        .single()
+
+      if (createError || !newHouse) {
+        fastify.log.error({ error: createError }, 'Error creating house')
+        reply.status(500).send({
+          error: 'Server Error',
+          message: 'No se pudo crear la casa'
+        })
+        return
+      }
+      house = newHouse
+    }
+
+    // Update profile with house_id
+    const { data: updatedProfile, error: updateProfileError } = await supabaseAdmin
+      .from('profiles')
+      .update({ house_id: house.id, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+      .select('id, role, house_id, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
+      .single()
+
+    if (updateProfileError || !updatedProfile) {
+      fastify.log.error({ error: updateProfileError }, 'Error updating profile with house_id')
       reply.status(500).send({
         error: 'Server Error',
-        message: 'No se pudo actualizar el número de casa'
+        message: 'No se pudo actualizar el perfil'
       })
       return
     }
@@ -1379,9 +1464,10 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
       id: updatedProfile.id,
       email: user.email,
       role: updatedProfile.role,
-      apartment_unit: updatedProfile.apartment_unit,
+      house_id: updatedProfile.house_id,
       colonia_id: updatedProfile.colonia_id,
       colonia: updatedProfile.colonias || null,
+      house: house || null,
       created_at: updatedProfile.created_at,
       updated_at: updatedProfile.updated_at
     })
@@ -1389,7 +1475,7 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
     fastify.log.error({ error }, 'Error in /profile/apartment-unit')
     reply.status(500).send({
       error: 'Server Error',
-      message: 'Failed to update apartment unit'
+      message: 'Failed to update house information'
     })
   }
 })
