@@ -867,11 +867,16 @@ export const GateControl: React.FC<GateControlProps> = ({
   }
 
   if (showCommunityForum) {
+    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || ''
+    const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || ''
+    
     return (
       <CommunityForumScreen
         apiUrl={apiUrl}
         authToken={authToken}
         onBack={() => setShowCommunityForum(false)}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
       />
     )
   }

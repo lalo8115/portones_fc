@@ -1,15 +1,19 @@
 import React, { useState } from 'react'
 import { ScrollView, Alert, RefreshControl, Platform, TouchableOpacity, Modal, Linking } from 'react-native'
 import { YStack, XStack, Text, Button, Card, Input, TextArea, Spinner, Circle, Sheet } from 'tamagui'
-import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, FileText, Send, ChevronDown, Clock } from '@tamagui/lucide-icons'
+import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, FileText, Send, ChevronDown, Clock, Upload } from '@tamagui/lucide-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import DateTimePicker from '@react-native-community/datetimepicker'
+import * as DocumentPicker from 'expo-document-picker'
+import { decode } from 'base64-arraybuffer'
 
 interface CommunityForumScreenProps {
   apiUrl: string
   authToken: string
   onBack: () => void
+  supabaseUrl: string
+  supabaseAnonKey: string
 }
 
 interface ForumPost {
@@ -84,7 +88,9 @@ const createPost = async (
 export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   apiUrl,
   authToken,
-  onBack
+  onBack,
+  supabaseUrl,
+  supabaseAnonKey
 }) => {
   const { profile } = useAuth()
   const queryClient = useQueryClient()
@@ -105,6 +111,8 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   const [showMonthPicker, setShowMonthPicker] = useState(false)
   const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null)
   const [showPdfViewer, setShowPdfViewer] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null)
+  const [uploadingFile, setUploadingFile] = useState(false)
   
   const isAdmin = profile?.role === 'admin'
 
@@ -125,6 +133,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       setEventTime('')
       setEventDuration('')
       setSelectedMonth('')
+      setSelectedFile(null)
       Alert.alert('Éxito', 'Publicación creada correctamente')
     },
     onError: (error: Error) => {
@@ -209,6 +218,89 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
     { label: 'Todo el día', value: 'Todo el día' }
   ]
 
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true
+      })
+
+      if (result.canceled) {
+        return
+      }
+
+      const file = result.assets[0]
+      
+      // Validar tamaño (10MB máximo)
+      if (file.size && file.size > 10 * 1024 * 1024) {
+        Alert.alert('Error', 'El archivo no puede superar los 10MB')
+        return
+      }
+
+      setSelectedFile(file)
+      Alert.alert('Archivo seleccionado', file.name)
+    } catch (error) {
+      console.error('Error picking document:', error)
+      Alert.alert('Error', 'No se pudo seleccionar el archivo')
+    }
+  }
+
+  const uploadFileToSupabase = async () => {
+    if (!selectedFile || !selectedMonth || !profile?.colonia_id) {
+      return null
+    }
+
+    try {
+      setUploadingFile(true)
+
+      // Leer el archivo como base64
+      const response = await fetch(selectedFile.uri)
+      const blob = await response.blob()
+      const reader = new FileReader()
+      
+      return new Promise<string>((resolve, reject) => {
+        reader.onloadend = async () => {
+          try {
+            const base64Data = reader.result as string
+            const base64 = base64Data.split(',')[1]
+            
+            // Crear nombre de archivo: colonias/{colonia_id}/{YYYY-MM}/estado-cuenta-{YYYY-MM}.pdf
+            const fileName = `${profile.colonia_id}/${selectedMonth}/estado-cuenta-${selectedMonth}.pdf`
+
+            // Subir a Supabase Storage
+            const uploadResponse = await fetch(`${supabaseUrl}/storage/v1/object/account-statements/${fileName}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/pdf',
+                'x-upsert': 'true' // Sobrescribir si ya existe
+              },
+              body: decode(base64)
+            })
+
+            if (!uploadResponse.ok) {
+              throw new Error('Error al subir el archivo')
+            }
+
+            // Obtener URL pública
+            const publicUrl = `${supabaseUrl}/storage/v1/object/public/account-statements/${fileName}`
+            resolve(publicUrl)
+          } catch (error) {
+            reject(error)
+          }
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch (error) {
+      console.error('Error uploading file:', error)
+      Alert.alert('Error', 'No se pudo subir el archivo')
+      return null
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
   const handleDateChange = (event: any, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
       setShowDatePicker(false)
@@ -259,9 +351,9 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
     })
   }
 
-  const handleCreatePost = () => {
-    if (!newPostTitle.trim() || !newPostContent.trim()) {
-      Alert.alert('Error', 'Por favor completa todos los campos')
+  const handleCreatePost = async () => {
+    if (!newPostTitle.trim()) {
+      Alert.alert('Error', 'Por favor ingresa un título')
       return
     }
 
@@ -271,10 +363,34 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
         Alert.alert('Error', 'Por favor selecciona el mes del estado de cuenta')
         return
       }
-      if (!newPostContent.trim().startsWith('http')) {
-        Alert.alert('Error', 'Por favor ingresa una URL válida para el PDF')
+      if (!selectedFile) {
+        Alert.alert('Error', 'Por favor selecciona un archivo PDF')
         return
       }
+
+      // Subir archivo primero
+      const fileUrl = await uploadFileToSupabase()
+      if (!fileUrl) {
+        Alert.alert('Error', 'No se pudo subir el archivo')
+        return
+      }
+
+      const postData: CreatePostData = {
+        title: newPostTitle,
+        content: `Estado de cuenta - ${formatMonthDisplay(selectedMonth)}`,
+        category: selectedCategory,
+        file_url: fileUrl,
+        file_month: selectedMonth
+      }
+
+      createPostMutation.mutate(postData)
+      return
+    }
+
+    // Validación para otras categorías
+    if (!newPostContent.trim()) {
+      Alert.alert('Error', 'Por favor completa todos los campos')
+      return
     }
 
     const postData: CreatePostData = {
@@ -288,12 +404,6 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       if (eventDate) postData.event_date = eventDate
       if (eventTime) postData.event_time = eventTime
       if (eventDuration) postData.event_duration = eventDuration
-    }
-
-    // Agregar campos de estado de cuenta si existen
-    if (selectedCategory === 'statements') {
-      postData.file_url = newPostContent
-      postData.file_month = selectedMonth
     }
 
     createPostMutation.mutate(postData)
@@ -443,17 +553,36 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
 
                   <YStack space='$2'>
                     <Text fontSize='$3' fontWeight='600'>
-                      URL del PDF *
+                      Archivo PDF *
                     </Text>
-                    <Input
+                    <Button
                       size='$4'
-                      placeholder='https://ejemplo.com/estado-cuenta.pdf'
-                      value={newPostContent}
-                      onChangeText={setNewPostContent}
-                    />
-                    <Text fontSize='$2' color='$gray10'>
-                      Ingresa la URL del archivo PDF del estado de cuenta
-                    </Text>
+                      backgroundColor={selectedFile ? '$orange2' : '$background'}
+                      borderWidth={1}
+                      borderColor={selectedFile ? '$orange7' : '$gray7'}
+                      justifyContent='space-between'
+                      icon={<Upload size={18} color={selectedFile ? '$orange10' : '$gray11'} />}
+                      onPress={pickDocument}
+                    >
+                      <Text color={selectedFile ? '$orange10' : '$gray11'} numberOfLines={1} flex={1}>
+                        {selectedFile ? selectedFile.name : 'Seleccionar archivo PDF'}
+                      </Text>
+                    </Button>
+                    {selectedFile && (
+                      <XStack space='$2' alignItems='center'>
+                        <Text fontSize='$2' color='$orange10'>
+                          ✓ Archivo seleccionado
+                        </Text>
+                        <Text fontSize='$2' color='$gray10'>
+                          ({(selectedFile.size! / 1024 / 1024).toFixed(2)} MB)
+                        </Text>
+                      </XStack>
+                    )}
+                    {!selectedFile && (
+                      <Text fontSize='$2' color='$gray10'>
+                        Selecciona el PDF del estado de cuenta (máximo 10MB)
+                      </Text>
+                    )}
                   </YStack>
                 </>
               )}
@@ -645,10 +774,10 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                 size='$4'
                 theme='blue'
                 onPress={handleCreatePost}
-                disabled={createPostMutation.isPending || !isFormValid}
-                icon={createPostMutation.isPending ? <Spinner size='small' /> : <Send size={20} />}
+                disabled={createPostMutation.isPending || uploadingFile || !isFormValid}
+                icon={(createPostMutation.isPending || uploadingFile) ? <Spinner size='small' /> : <Send size={20} />}
               >
-                {createPostMutation.isPending ? 'Publicando...' : 'Publicar'}
+                {uploadingFile ? 'Subiendo archivo...' : createPostMutation.isPending ? 'Publicando...' : 'Publicar'}
               </Button>
               {!isFormValid && (
                 <Text fontSize='$2' color='$red10' textAlign='center'>
