@@ -1,12 +1,14 @@
 import React, { useState } from 'react'
-import { ScrollView, Alert, RefreshControl, Platform, TouchableOpacity, Modal, Linking } from 'react-native'
+import { ScrollView, Alert, RefreshControl, Platform, TouchableOpacity, Modal, Linking, View } from 'react-native'
 import { YStack, XStack, Text, Button, Card, Input, TextArea, Spinner, Circle, Sheet } from 'tamagui'
-import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, FileText, Send, ChevronDown, Clock, Upload } from '@tamagui/lucide-icons'
+import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, FileText, Send, ChevronDown, Clock, Upload, ExternalLink } from '@tamagui/lucide-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import DateTimePicker from '@react-native-community/datetimepicker'
 import * as DocumentPicker from 'expo-document-picker'
 import { decode } from 'base64-arraybuffer'
+import { createClient } from '@supabase/supabase-js'
+import { WebView } from 'react-native-webview'
 
 interface CommunityForumScreenProps {
   apiUrl: string
@@ -113,6 +115,8 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   const [showPdfViewer, setShowPdfViewer] = useState(false)
   const [selectedFile, setSelectedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null)
   const [uploadingFile, setUploadingFile] = useState(false)
+  const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null)
+  const [showPostDetail, setShowPostDetail] = useState(false)
   
   const isAdmin = profile?.role === 'admin'
 
@@ -161,12 +165,16 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       title: 'Estados de Cuenta',
       icon: FileText,
       color: '$orange10',
-      description: 'Estados de cuenta mensuales (Solo admin)'
+      description: 'Estados de cuenta mensuales'
     }
   ]
 
   const selectedCategoryData = categories.find(c => c.id === selectedCategory)
-  const isFormValid = !!newPostTitle.trim() && !!newPostContent.trim()
+  
+  // Validación dinámica según categoría
+  const isFormValid = selectedCategory === 'statements'
+    ? !!newPostTitle.trim() && !!selectedMonth && !!selectedFile
+    : !!newPostTitle.trim() && !!newPostContent.trim()
 
   // Agrupar estados de cuenta por mes
   const groupStatementsByMonth = () => {
@@ -196,6 +204,11 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
     // Formato esperado: YYYY-MM
     const [year, month] = monthStr.split('-')
     return `${monthNames[month] || month} ${year}`
+  }
+
+  const handlePostPress = (post: ForumPost) => {
+    setSelectedPost(post)
+    setShowPostDetail(true)
   }
 
   const openPdf = (url: string) => {
@@ -253,45 +266,37 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
     try {
       setUploadingFile(true)
 
-      // Leer el archivo como base64
+      // Crear cliente de Supabase
+      const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+      // Leer el archivo como ArrayBuffer
       const response = await fetch(selectedFile.uri)
       const blob = await response.blob()
-      const reader = new FileReader()
+      const arrayBuffer = await blob.arrayBuffer()
       
-      return new Promise<string>((resolve, reject) => {
-        reader.onloadend = async () => {
-          try {
-            const base64Data = reader.result as string
-            const base64 = base64Data.split(',')[1]
-            
-            // Crear nombre de archivo: colonias/{colonia_id}/{YYYY-MM}/estado-cuenta-{YYYY-MM}.pdf
-            const fileName = `${profile.colonia_id}/${selectedMonth}/estado-cuenta-${selectedMonth}.pdf`
+      // Crear nombre de archivo simplificado: {YYYY}/{MM}/estado-cuenta.pdf
+      const [year, month] = selectedMonth.split('-')
+      const fileName = `${year}/${month}/estado-cuenta.pdf`
 
-            // Subir a Supabase Storage
-            const uploadResponse = await fetch(`${supabaseUrl}/storage/v1/object/account-statements/${fileName}`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${authToken}`,
-                'Content-Type': 'application/pdf',
-                'x-upsert': 'true' // Sobrescribir si ya existe
-              },
-              body: decode(base64)
-            })
+      // Subir archivo usando el cliente de Supabase
+      const { data, error } = await supabase.storage
+        .from('account-statements')
+        .upload(fileName, arrayBuffer, {
+          contentType: 'application/pdf',
+          upsert: true // Sobrescribir si ya existe
+        })
 
-            if (!uploadResponse.ok) {
-              throw new Error('Error al subir el archivo')
-            }
+      if (error) {
+        console.error('Supabase upload error:', error)
+        throw new Error(error.message || 'Error al subir el archivo')
+      }
 
-            // Obtener URL pública
-            const publicUrl = `${supabaseUrl}/storage/v1/object/public/account-statements/${fileName}`
-            resolve(publicUrl)
-          } catch (error) {
-            reject(error)
-          }
-        }
-        reader.onerror = reject
-        reader.readAsDataURL(blob)
-      })
+      // Obtener URL pública
+      const { data: urlData } = supabase.storage
+        .from('account-statements')
+        .getPublicUrl(fileName)
+
+      return urlData.publicUrl
     } catch (error) {
       console.error('Error uploading file:', error)
       Alert.alert('Error', 'No se pudo subir el archivo')
@@ -1041,13 +1046,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                 bordered
                 padding='$3'
                 pressStyle={{ scale: 0.98, opacity: 0.9 }}
-                onPress={() => {
-                  Alert.alert(
-                    post.title,
-                    post.content,
-                    [{ text: 'Cerrar' }]
-                  )
-                }}
+                onPress={() => handlePostPress(post)}
               >
                 <YStack space='$2'>
                   {/* Header del post */}
@@ -1132,6 +1131,199 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
         )}
       </ScrollView>
 
+      {/* Modal tipo alerta para ver detalles del post */}
+      <Modal
+        visible={showPostDetail}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowPostDetail(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}
+          activeOpacity={1}
+          onPress={() => setShowPostDetail(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{ width: '100%', maxWidth: 500, maxHeight: '85%' }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Card
+              elevate
+              bordered
+              padding='$0'
+              backgroundColor='$background'
+              borderRadius='$6'
+              shadowColor="$shadowColor"
+              shadowOffset={{ width: 0, height: 8 }}
+              shadowOpacity={0.3}
+              shadowRadius={16}
+              overflow="hidden"
+            >
+              {selectedPost && (
+                <YStack flex={1}>
+                  <XStack
+                    justifyContent='space-between'
+                    alignItems='center'
+                    padding='$4'
+                    borderBottomWidth={1}
+                    borderBottomColor='$gray5'
+                    backgroundColor='$background'
+                  >
+                    <Text fontSize='$5' fontWeight='bold'>
+                      Detalles
+                    </Text>
+                    <Button
+                      size='$3'
+                      chromeless
+                      circular
+                      onPress={() => setShowPostDetail(false)}
+                    >
+                      <Text fontSize='$5' color='$gray11'>×</Text>
+                    </Button>
+                  </XStack>
+
+                  <ScrollView style={{ maxHeight: '100%' }}>
+                    <YStack padding='$4' space='$4'>
+                      {/* Categoría Badge */}
+                      <XStack space='$2' alignItems='center'>
+                        {selectedPost.category === 'events' && (
+                          <>
+                            <Circle size={32} backgroundColor='$blue10'>
+                              <CalendarIcon size={16} color='white' />
+                            </Circle>
+                            <Text fontSize='$3' color='$blue11' fontWeight='600'>
+                              Evento
+                            </Text>
+                          </>
+                        )}
+                        {selectedPost.category === 'messages' && (
+                          <>
+                            <Circle size={32} backgroundColor='$green10'>
+                              <MessageCircle size={16} color='white' />
+                            </Circle>
+                            <Text fontSize='$3' color='$green11' fontWeight='600'>
+                              Mensaje
+                            </Text>
+                          </>
+                        )}
+                      </XStack>
+
+                      {/* Título */}
+                      <YStack space='$2'>
+                        <Text fontSize='$6' fontWeight='bold' lineHeight='$6'>
+                          {selectedPost.title}
+                        </Text>
+                      </YStack>
+
+                      {/* Información del autor y fecha */}
+                      <Card backgroundColor='$gray3' padding='$3' borderRadius='$3'>
+                        <YStack space='$2'>
+                          <XStack space='$3' alignItems='center'>
+                            <Circle size={40} backgroundColor='$green11'>
+                              <Text color='white' fontSize='$4' fontWeight='bold'>
+                                {selectedPost.author_name.charAt(0).toUpperCase()}
+                              </Text>
+                            </Circle>
+                            <YStack flex={1}>
+                              <Text fontSize='$4' fontWeight='600'>
+                                {selectedPost.author_name}
+                              </Text>
+                              {selectedPost.author_unit && (
+                                <Text fontSize='$3' color='$gray11'>
+                                  Unidad {selectedPost.author_unit}
+                                </Text>
+                              )}
+                            </YStack>
+                          </XStack>
+                          <XStack space='$2' alignItems='center'>
+                            <Clock size={14} color='$gray10' />
+                            <Text fontSize='$3' color='$gray11'>
+                              {formatDate(selectedPost.created_at)}
+                            </Text>
+                          </XStack>
+                        </YStack>
+                      </Card>
+
+                      {/* Información del evento (solo para eventos) */}
+                      {selectedPost.category === 'events' && (selectedPost.event_date || selectedPost.event_time || selectedPost.event_duration) && (
+                        <Card backgroundColor='$blue2' padding='$4' borderRadius='$3' borderWidth={1} borderColor='$blue7'>
+                          <YStack space='$3'>
+                            <XStack space='$2' alignItems='center'>
+                              <CalendarIcon size={20} color='$blue10' />
+                              <Text fontSize='$4' fontWeight='bold' color='$blue11'>
+                                Información del Evento
+                              </Text>
+                            </XStack>
+                            
+                            {selectedPost.event_date && (
+                              <XStack space='$2' alignItems='center'>
+                                <Text fontSize='$3' color='$gray11' width={80}>
+                                  Fecha:
+                                </Text>
+                                <Text fontSize='$4' color='$blue11' fontWeight='600'>
+                                  {selectedPost.event_date}
+                                </Text>
+                              </XStack>
+                            )}
+                            
+                            {selectedPost.event_time && (
+                              <XStack space='$2' alignItems='center'>
+                                <Text fontSize='$3' color='$gray11' width={80}>
+                                  Hora:
+                                </Text>
+                                <Text fontSize='$4' color='$blue11' fontWeight='600'>
+                                  {selectedPost.event_time}
+                                </Text>
+                              </XStack>
+                            )}
+                            
+                            {selectedPost.event_duration && (
+                              <XStack space='$2' alignItems='center'>
+                                <Text fontSize='$3' color='$gray11' width={80}>
+                                  Duración:
+                                </Text>
+                                <Text fontSize='$4' color='$blue11' fontWeight='600'>
+                                  {selectedPost.event_duration}
+                                </Text>
+                              </XStack>
+                            )}
+                          </YStack>
+                        </Card>
+                      )}
+
+                      {/* Contenido completo */}
+                      <Card backgroundColor='$background' padding='$4' borderRadius='$3' borderWidth={1} borderColor='$gray7'>
+                        <YStack space='$2'>
+                          <Text fontSize='$4' fontWeight='600' color='$gray12'>
+                            Contenido
+                          </Text>
+                          <Text fontSize='$4' color='$gray12' lineHeight='$5'>
+                            {selectedPost.content}
+                          </Text>
+                        </YStack>
+                      </Card>
+
+                      {/* Sección de respuestas (placeholder) */}
+                      {selectedPost.replies_count !== undefined && selectedPost.replies_count > 0 && (
+                        <Card backgroundColor='$gray3' padding='$4' borderRadius='$3'>
+                          <XStack space='$2' alignItems='center' justifyContent='center'>
+                            <MessageCircle size={18} color='$gray10' />
+                            <Text fontSize='$3' color='$gray11'>
+                              {selectedPost.replies_count} {selectedPost.replies_count === 1 ? 'respuesta' : 'respuestas'}
+                            </Text>
+                          </XStack>
+                        </Card>
+                      )}
+                    </YStack>
+                  </ScrollView>
+                </YStack>
+              )}
+            </Card>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Modal para visualizar PDF */}
       <Modal
         visible={showPdfViewer}
@@ -1148,6 +1340,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
             backgroundColor='$background'
             borderBottomWidth={1}
             borderBottomColor='$gray5'
+            elevation={2}
           >
             <Button
               size='$3'
@@ -1162,7 +1355,8 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
             </Text>
             <Button
               size='$3'
-              theme='blue'
+              chromeless
+              icon={<ExternalLink size={18} />}
               onPress={() => {
                 if (selectedPdfUrl) {
                   Linking.openURL(selectedPdfUrl).catch(err => {
@@ -1170,26 +1364,44 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                   })
                 }
               }}
-            >
-              Abrir
-            </Button>
+            />
           </XStack>
-          <YStack flex={1} justifyContent='center' alignItems='center' padding='$4'>
-            <Circle size={80} backgroundColor='$orange5' elevate marginBottom='$4'>
-              <FileText size={40} color='$orange10' />
-            </Circle>
-            <Text fontSize='$5' fontWeight='bold' marginBottom='$2'>
-              Documento PDF
-            </Text>
-            <Text fontSize='$3' color='$gray11' textAlign='center' marginBottom='$4'>
-              Presiona "Abrir" para ver el estado de cuenta en tu navegador o aplicación de PDF.
-            </Text>
-            {selectedPdfUrl && (
-              <Text fontSize='$2' color='$gray10' textAlign='center' numberOfLines={2}>
-                {selectedPdfUrl}
-              </Text>
-            )}
-          </YStack>
+          {selectedPdfUrl && (
+            Platform.OS === 'web' ? (
+              <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
+                <iframe
+                  src={selectedPdfUrl}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    border: 'none',
+                    backgroundColor: '#f5f5f5'
+                  }}
+                  title="Estado de Cuenta PDF"
+                />
+              </View>
+            ) : (
+              <WebView
+                source={{ uri: selectedPdfUrl }}
+                style={{ flex: 1, backgroundColor: '#f5f5f5' }}
+                startInLoadingState
+                renderLoading={() => (
+                  <YStack flex={1} justifyContent='center' alignItems='center' backgroundColor='$background'>
+                    <Spinner size='large' color='$blue10' />
+                    <Text fontSize='$3' color='$gray11' marginTop='$3'>
+                      Cargando PDF...
+                    </Text>
+                  </YStack>
+                )}
+                onError={() => {
+                  Alert.alert(
+                    'Error',
+                    'No se pudo cargar el PDF. Presiona el botón superior derecho para abrirlo externamente.'
+                  )
+                }}
+              />
+            )
+          )}
         </YStack>
       </Modal>
     </YStack>

@@ -19,40 +19,31 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = 10485760,
   allowed_mime_types = ARRAY['application/pdf']::text[];
 
--- 2. Política: Solo admins pueden subir archivos
-DROP POLICY IF EXISTS "Admins can upload statements" ON storage.objects;
-CREATE POLICY "Admins can upload statements"
+-- 2. Política: Usuarios autenticados pueden subir (validación se hace en app)
+DROP POLICY IF EXISTS "Authenticated users can upload" ON storage.objects;
+CREATE POLICY "Authenticated users can upload"
 ON storage.objects FOR INSERT
 WITH CHECK (
   bucket_id = 'account-statements' 
-  AND EXISTS (
-    SELECT 1 FROM profiles 
-    WHERE id = auth.uid() AND role = 'admin'
-  )
+  AND auth.uid() IS NOT NULL
 );
 
--- 3. Política: Solo admins pueden actualizar archivos
-DROP POLICY IF EXISTS "Admins can update statements" ON storage.objects;
-CREATE POLICY "Admins can update statements"
+-- 3. Política: Usuarios autenticados pueden actualizar
+DROP POLICY IF EXISTS "Authenticated users can update" ON storage.objects;
+CREATE POLICY "Authenticated users can update"
 ON storage.objects FOR UPDATE
 USING (
   bucket_id = 'account-statements'
-  AND EXISTS (
-    SELECT 1 FROM profiles 
-    WHERE id = auth.uid() AND role = 'admin'
-  )
+  AND auth.uid() IS NOT NULL
 );
 
--- 4. Política: Solo admins pueden eliminar archivos
-DROP POLICY IF EXISTS "Admins can delete statements" ON storage.objects;
-CREATE POLICY "Admins can delete statements"
+-- 4. Política: Usuarios autenticados pueden eliminar
+DROP POLICY IF EXISTS "Authenticated users can delete" ON storage.objects;
+CREATE POLICY "Authenticated users can delete"
 ON storage.objects FOR DELETE
 USING (
   bucket_id = 'account-statements'
-  AND EXISTS (
-    SELECT 1 FROM profiles 
-    WHERE id = auth.uid() AND role = 'admin'
-  )
+  AND auth.uid() IS NOT NULL
 );
 
 -- 5. Política: Todos los usuarios autenticados pueden ver archivos
@@ -61,7 +52,7 @@ CREATE POLICY "Authenticated users can view statements"
 ON storage.objects FOR SELECT
 USING (
   bucket_id = 'account-statements'
-  AND auth.role() = 'authenticated'
+  AND auth.uid() IS NOT NULL
 );
 
 -- ==========================================
