@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import { ScrollView, Alert, RefreshControl, Platform, TouchableOpacity, Modal } from 'react-native'
+import { ScrollView, Alert, RefreshControl, Platform, TouchableOpacity, Modal, Linking } from 'react-native'
 import { YStack, XStack, Text, Button, Card, Input, TextArea, Spinner, Circle, Sheet } from 'tamagui'
-import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, AlertCircle, Send, ChevronDown, Clock } from '@tamagui/lucide-icons'
+import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, FileText, Send, ChevronDown, Clock } from '@tamagui/lucide-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import DateTimePicker from '@react-native-community/datetimepicker'
@@ -19,20 +19,24 @@ interface ForumPost {
   author_name: string
   author_unit?: string
   created_at: string
-  category: 'events' | 'messages' | 'requests'
+  category: 'events' | 'messages' | 'statements'
   replies_count?: number
   event_date?: string
   event_time?: string
   event_duration?: string
+  file_url?: string
+  file_month?: string
 }
 
 interface CreatePostData {
   title: string
   content: string
-  category: 'events' | 'messages' | 'requests'
+  category: 'events' | 'messages' | 'statements'
   event_date?: string
   event_time?: string
   event_duration?: string
+  file_url?: string
+  file_month?: string
 }
 
 const fetchPosts = async (
@@ -84,7 +88,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
 }) => {
   const { profile } = useAuth()
   const queryClient = useQueryClient()
-  const [selectedCategory, setSelectedCategory] = useState<'events' | 'messages' | 'requests'>('events')
+  const [selectedCategory, setSelectedCategory] = useState<'events' | 'messages' | 'statements'>('events')
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
   const [showCreatePost, setShowCreatePost] = useState(false)
   const [newPostTitle, setNewPostTitle] = useState('')
@@ -97,6 +101,12 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   const [showDurationPicker, setShowDurationPicker] = useState(false)
   const [datePickerValue, setDatePickerValue] = useState(new Date())
   const [timePickerValue, setTimePickerValue] = useState(new Date())
+  const [selectedMonth, setSelectedMonth] = useState('')
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null)
+  const [showPdfViewer, setShowPdfViewer] = useState(false)
+  
+  const isAdmin = profile?.role === 'admin'
 
   const { data: posts, isLoading, refetch } = useQuery({
     queryKey: ['forumPosts', selectedCategory],
@@ -114,6 +124,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       setEventDate('')
       setEventTime('')
       setEventDuration('')
+      setSelectedMonth('')
       Alert.alert('Éxito', 'Publicación creada correctamente')
     },
     onError: (error: Error) => {
@@ -137,16 +148,51 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       description: 'Avisos y mensajes generales'
     },
     {
-      id: 'requests' as const,
-      title: 'Peticiones',
-      icon: AlertCircle,
+      id: 'statements' as const,
+      title: 'Estados de Cuenta',
+      icon: FileText,
       color: '$orange10',
-      description: 'Solicitudes de la comunidad'
+      description: 'Estados de cuenta mensuales (Solo admin)'
     }
   ]
 
   const selectedCategoryData = categories.find(c => c.id === selectedCategory)
   const isFormValid = !!newPostTitle.trim() && !!newPostContent.trim()
+
+  // Agrupar estados de cuenta por mes
+  const groupStatementsByMonth = () => {
+    if (selectedCategory !== 'statements' || !posts) return {}
+    
+    const grouped: { [key: string]: ForumPost[] } = {}
+    posts.forEach(post => {
+      const month = post.file_month || 'Sin mes'
+      if (!grouped[month]) {
+        grouped[month] = []
+      }
+      grouped[month].push(post)
+    })
+    return grouped
+  }
+
+  const statementsByMonth = selectedCategory === 'statements' ? groupStatementsByMonth() : {}
+  const months = Object.keys(statementsByMonth).sort().reverse()
+
+  const monthNames: { [key: string]: string } = {
+    '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril',
+    '05': 'Mayo', '06': 'Junio', '07': 'Julio', '08': 'Agosto',
+    '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre'
+  }
+
+  const formatMonthDisplay = (monthStr: string) => {
+    // Formato esperado: YYYY-MM
+    const [year, month] = monthStr.split('-')
+    return `${monthNames[month] || month} ${year}`
+  }
+
+  const openPdf = (url: string) => {
+    setSelectedPdfUrl(url)
+    setShowPdfViewer(true)
+  }
 
   const durationOptions = [
     { label: '15 minutos', value: '15 minutos' },
@@ -219,6 +265,18 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       return
     }
 
+    // Validaciones específicas para estados de cuenta
+    if (selectedCategory === 'statements') {
+      if (!selectedMonth) {
+        Alert.alert('Error', 'Por favor selecciona el mes del estado de cuenta')
+        return
+      }
+      if (!newPostContent.trim().startsWith('http')) {
+        Alert.alert('Error', 'Por favor ingresa una URL válida para el PDF')
+        return
+      }
+    }
+
     const postData: CreatePostData = {
       title: newPostTitle,
       content: newPostContent,
@@ -230,6 +288,12 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       if (eventDate) postData.event_date = eventDate
       if (eventTime) postData.event_time = eventTime
       if (eventDuration) postData.event_duration = eventDuration
+    }
+
+    // Agregar campos de estado de cuenta si existen
+    if (selectedCategory === 'statements') {
+      postData.file_url = newPostContent
+      postData.file_month = selectedMonth
     }
 
     createPostMutation.mutate(postData)
@@ -296,6 +360,103 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                   maxLength={100}
                 />
               </YStack>
+
+              {/* Campos específicos para estados de cuenta */}
+              {selectedCategory === 'statements' && (
+                <>
+                  <YStack space='$2'>
+                    <Text fontSize='$3' fontWeight='600'>
+                      Mes del Estado de Cuenta *
+                    </Text>
+                    <Button
+                      size='$4'
+                      backgroundColor='$background'
+                      borderWidth={1}
+                      borderColor='$gray7'
+                      color='$color'
+                      justifyContent='space-between'
+                      icon={<CalendarIcon size={18} color='$gray11' />}
+                      onPress={() => setShowMonthPicker(true)}
+                    >
+                      <Text color={selectedMonth ? '$color' : '$gray11'}>
+                        {selectedMonth ? formatMonthDisplay(selectedMonth) : 'Seleccionar mes'}
+                      </Text>
+                      <ChevronDown size={16} color='$gray11' />
+                    </Button>
+                  </YStack>
+
+                  {/* Month Picker Sheet */}
+                  <Sheet
+                    modal
+                    open={showMonthPicker}
+                    onOpenChange={setShowMonthPicker}
+                    snapPoints={[60]}
+                    dismissOnSnapToBottom
+                  >
+                    <Sheet.Overlay />
+                    <Sheet.Frame padding='$4' backgroundColor='$background'>
+                      <Sheet.Handle />
+                      <YStack space='$3' paddingTop='$3'>
+                        <Text fontSize='$5' fontWeight='bold' textAlign='center'>
+                          Seleccionar Mes
+                        </Text>
+                        <ScrollView style={{ maxHeight: 400 }}>
+                          <YStack space='$2'>
+                            {(() => {
+                              const currentYear = new Date().getFullYear()
+                              const months = []
+                              // Generar los últimos 12 meses
+                              for (let i = 0; i < 12; i++) {
+                                const date = new Date()
+                                date.setMonth(date.getMonth() - i)
+                                const year = date.getFullYear()
+                                const month = String(date.getMonth() + 1).padStart(2, '0')
+                                const value = `${year}-${month}`
+                                months.push(value)
+                              }
+                              return months.map((monthValue) => (
+                                <Button
+                                  key={monthValue}
+                                  size='$4'
+                                  backgroundColor={selectedMonth === monthValue ? '$orange4' : '$background'}
+                                  borderWidth={1}
+                                  borderColor={selectedMonth === monthValue ? '$orange10' : '$gray7'}
+                                  onPress={() => {
+                                    setSelectedMonth(monthValue)
+                                    setShowMonthPicker(false)
+                                  }}
+                                >
+                                  <Text
+                                    color={selectedMonth === monthValue ? '$orange10' : '$color'}
+                                    fontWeight={selectedMonth === monthValue ? 'bold' : 'normal'}
+                                  >
+                                    {formatMonthDisplay(monthValue)}
+                                  </Text>
+                                </Button>
+                              ))
+                            })()}
+                          </YStack>
+                        </ScrollView>
+                      </YStack>
+                    </Sheet.Frame>
+                  </Sheet>
+
+                  <YStack space='$2'>
+                    <Text fontSize='$3' fontWeight='600'>
+                      URL del PDF *
+                    </Text>
+                    <Input
+                      size='$4'
+                      placeholder='https://ejemplo.com/estado-cuenta.pdf'
+                      value={newPostContent}
+                      onChangeText={setNewPostContent}
+                    />
+                    <Text fontSize='$2' color='$gray10'>
+                      Ingresa la URL del archivo PDF del estado de cuenta
+                    </Text>
+                  </YStack>
+                </>
+              )}
 
               {/* Campos específicos para eventos */}
               {selectedCategory === 'events' && (
@@ -460,23 +621,25 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                 </>
               )}
 
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600'>
-                  Contenido
-                </Text>
-                <TextArea
-                  size='$4'
-                  placeholder='Escribe el contenido de tu publicación...'
-                  value={newPostContent}
-                  onChangeText={setNewPostContent}
-                  minHeight={200}
-                  maxLength={1000}
-                  numberOfLines={8}
-                />
-                <Text fontSize='$2' color='$gray11' textAlign='right'>
-                  {newPostContent.length}/1000
-                </Text>
-              </YStack>
+              {selectedCategory !== 'statements' && (
+                <YStack space='$2'>
+                  <Text fontSize='$3' fontWeight='600'>
+                    Contenido
+                  </Text>
+                  <TextArea
+                    size='$4'
+                    placeholder='Escribe el contenido de tu publicación...'
+                    value={newPostContent}
+                    onChangeText={setNewPostContent}
+                    minHeight={200}
+                    maxLength={1000}
+                    numberOfLines={8}
+                  />
+                  <Text fontSize='$2' color='$gray11' textAlign='right'>
+                    {newPostContent.length}/1000
+                  </Text>
+                </YStack>
+              )}
 
               <Button
                 size='$4'
@@ -529,17 +692,19 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
             )}
           </YStack>
         </XStack>
-        <Button
-          size='$3'
-          theme='blue'
-          icon={<Plus size={18} />}
-          onPress={() => setShowCreatePost(true)}
-        >
-          Nueva
-        </Button>
+        {(selectedCategory !== 'statements' || isAdmin) && (
+          <Button
+            size='$3'
+            theme='blue'
+            icon={<Plus size={18} />}
+            onPress={() => setShowCreatePost(true)}
+          >
+            Nueva
+          </Button>
+        )}
       </XStack>
 
-      {/* Categorías - Dropdown */}
+      {/* Categorías - Dropdown superpuesto */}
       <YStack padding='$4' paddingTop='$3' paddingBottom='$3' borderBottomWidth={1} borderBottomColor='$gray5'>
         <Text fontSize='$2' fontWeight='600' color='$gray11' marginBottom='$2'>
           Categoría
@@ -551,7 +716,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
           justifyContent='space-between'
           backgroundColor={selectedCategoryData?.color}
           borderRadius='$2'
-          onPress={() => setShowCategoryDropdown(!showCategoryDropdown)}
+          onPress={() => setShowCategoryDropdown(true)}
         >
           <XStack space='$2' alignItems='center' flex={1}>
             {selectedCategoryData && <selectedCategoryData.icon size={18} color='white' />}
@@ -562,49 +727,69 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
           <ChevronDown size={18} color='white' style={{ transform: [{ rotate: showCategoryDropdown ? '180deg' : '0deg' }] }} />
         </Button>
 
-        {showCategoryDropdown && (
-          <YStack
-            marginTop='$2'
-            borderRadius='$2'
-            borderWidth={1}
-            borderColor='$gray5'
-            overflow='hidden'
-            backgroundColor='$background'
+        {/* Modal para el menú de categorías */}
+        <Modal
+          visible={showCategoryDropdown}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowCategoryDropdown(false)}
+        >
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => setShowCategoryDropdown(false)}
           >
-            {categories.map((category, index) => {
-              const Icon = category.icon
-              const isSelected = selectedCategory === category.id
-              
-              return (
-                <Button
-                  key={category.id}
-                  unstyled
-                  padding='$3'
-                  backgroundColor={isSelected ? category.color : '$background'}
-                  opacity={1}
-                  borderBottomWidth={index < categories.length - 1 ? 1 : 0}
-                  borderBottomColor='$gray5'
-                  onPress={() => {
-                    setSelectedCategory(category.id)
-                    setShowCategoryDropdown(false)
-                  }}
-                >
-                  <XStack space='$3' alignItems='center' opacity={1}>
-                    <Icon size={20} color={category.color} />
-                    <YStack flex={1}>
-                      <Text fontWeight='600' fontSize='$3' color={isSelected ? '$gray12' : '$color'}>
-                        {category.title}
-                      </Text>
-                      <Text fontSize='$2' color={isSelected ? '$color' : '$gray11'}>
-                        {category.description}
-                      </Text>
-                    </YStack>
-                  </XStack>
-                </Button>
-              )
-            })}
-          </YStack>
-        )}
+            <YStack
+              position="absolute"
+              top={140}
+              left={16}
+              right={16}
+              borderRadius={12}
+              borderWidth={1}
+              borderColor="$gray5"
+              overflow="hidden"
+              backgroundColor="$background"
+              shadowColor="$shadowColor"
+              shadowOffset={{ width: 0, height: 4 }}
+              shadowOpacity={0.3}
+              shadowRadius={8}
+              elevation={8}
+            >
+              {categories.map((category, index) => {
+                const Icon = category.icon
+                const isSelected = selectedCategory === category.id
+                
+                return (
+                  <TouchableOpacity
+                    key={category.id}
+                    onPress={() => {
+                      setSelectedCategory(category.id)
+                      setShowCategoryDropdown(false)
+                    }}
+                    style={{
+                      padding: 12,
+                      backgroundColor: isSelected ? category.color : 'transparent',
+                      borderBottomWidth: index < categories.length - 1 ? 1 : 0,
+                      borderBottomColor: '#e0e0e0'
+                    }}
+                  >
+                    <XStack space='$3' alignItems='center'>
+                      <Icon size={20} color={category.color} />
+                      <YStack flex={1}>
+                        <Text fontWeight='600' fontSize='$3' color={isSelected ? '$gray12' : '$color'}>
+                          {category.title}
+                        </Text>
+                        <Text fontSize='$2' color={isSelected ? '$color' : '$gray11'}>
+                          {category.description}
+                        </Text>
+                      </YStack>
+                    </XStack>
+                  </TouchableOpacity>
+                )
+              })}
+            </YStack>
+          </TouchableOpacity>
+        </Modal>
       </YStack>
 
       {/* Lista de publicaciones */}
@@ -639,14 +824,83 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                 ¡Sé el primero en publicar!
               </Text>
             </YStack>
-            <Button
-              size='$3'
-              theme='blue'
-              icon={<Plus size={18} />}
-              onPress={() => setShowCreatePost(true)}
-            >
-              Crear Publicación
-            </Button>
+            {(selectedCategory !== 'statements' || isAdmin) && (
+              <Button
+                size='$3'
+                theme='blue'
+                icon={<Plus size={18} />}
+                onPress={() => setShowCreatePost(true)}
+              >
+                Crear Publicación
+              </Button>
+            )}
+          </YStack>
+        ) : selectedCategory === 'statements' ? (
+          // Vista especial para estados de cuenta
+          <YStack space='$3'>
+            {months.length === 0 ? (
+              <YStack flex={1} justifyContent='center' alignItems='center' padding='$6' space='$4'>
+                <Circle size={80} backgroundColor='$gray5' elevate>
+                  <FileText size={40} color='$gray10' />
+                </Circle>
+                <YStack space='$2' alignItems='center'>
+                  <Text fontSize='$5' fontWeight='bold' color='$gray12'>
+                    Sin Estados de Cuenta
+                  </Text>
+                  <Text fontSize='$3' color='$gray11' textAlign='center'>
+                    No hay estados de cuenta disponibles.
+                  </Text>
+                  {isAdmin && (
+                    <Text fontSize='$3' color='$gray11' textAlign='center'>
+                      ¡Sube el primer estado de cuenta!
+                    </Text>
+                  )}
+                </YStack>
+              </YStack>
+            ) : (
+              months.map((month) => {
+                const monthPosts = statementsByMonth[month]
+                const post = monthPosts[0] // Tomar el primer post del mes
+                
+                return (
+                  <Card
+                    key={month}
+                    elevate
+                    size='$3'
+                    bordered
+                    padding='$3'
+                    pressStyle={{ scale: 0.98, opacity: 0.9 }}
+                    backgroundColor='$orange2'
+                    borderColor='$orange7'
+                    onPress={() => {
+                      if (post.file_url) {
+                        openPdf(post.file_url)
+                      } else {
+                        Alert.alert('Error', 'No hay archivo disponible para este mes')
+                      }
+                    }}
+                  >
+                    <XStack space='$3' alignItems='center'>
+                      <Circle size={50} backgroundColor='$orange10' elevate>
+                        <FileText size={24} color='white' />
+                      </Circle>
+                      <YStack flex={1} space='$1'>
+                        <Text fontSize='$5' fontWeight='bold' color='$orange11'>
+                          {formatMonthDisplay(month)}
+                        </Text>
+                        <Text fontSize='$3' color='$gray11'>
+                          Estado de cuenta mensual
+                        </Text>
+                        <Text fontSize='$2' color='$gray10'>
+                          Toca para ver el PDF
+                        </Text>
+                      </YStack>
+                      <ChevronDown size={20} color='$orange10' style={{ transform: [{ rotate: '-90deg' }] }} />
+                    </XStack>
+                  </Card>
+                )
+              })
+            )}
           </YStack>
         ) : (
           <YStack space='$3'>
@@ -748,6 +1002,67 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
           </YStack>
         )}
       </ScrollView>
+
+      {/* Modal para visualizar PDF */}
+      <Modal
+        visible={showPdfViewer}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowPdfViewer(false)}
+      >
+        <YStack flex={1} backgroundColor='$background'>
+          <XStack
+            justifyContent='space-between'
+            alignItems='center'
+            padding='$4'
+            paddingTop='$8'
+            backgroundColor='$background'
+            borderBottomWidth={1}
+            borderBottomColor='$gray5'
+          >
+            <Button
+              size='$3'
+              chromeless
+              icon={<ChevronLeft size={20} />}
+              onPress={() => setShowPdfViewer(false)}
+            >
+              Cerrar
+            </Button>
+            <Text fontSize='$5' fontWeight='bold'>
+              Estado de Cuenta
+            </Text>
+            <Button
+              size='$3'
+              theme='blue'
+              onPress={() => {
+                if (selectedPdfUrl) {
+                  Linking.openURL(selectedPdfUrl).catch(err => {
+                    Alert.alert('Error', 'No se pudo abrir el archivo')
+                  })
+                }
+              }}
+            >
+              Abrir
+            </Button>
+          </XStack>
+          <YStack flex={1} justifyContent='center' alignItems='center' padding='$4'>
+            <Circle size={80} backgroundColor='$orange5' elevate marginBottom='$4'>
+              <FileText size={40} color='$orange10' />
+            </Circle>
+            <Text fontSize='$5' fontWeight='bold' marginBottom='$2'>
+              Documento PDF
+            </Text>
+            <Text fontSize='$3' color='$gray11' textAlign='center' marginBottom='$4'>
+              Presiona "Abrir" para ver el estado de cuenta en tu navegador o aplicación de PDF.
+            </Text>
+            {selectedPdfUrl && (
+              <Text fontSize='$2' color='$gray10' textAlign='center' numberOfLines={2}>
+                {selectedPdfUrl}
+              </Text>
+            )}
+          </YStack>
+        </YStack>
+      </Modal>
     </YStack>
   )
 }

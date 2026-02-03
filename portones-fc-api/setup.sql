@@ -468,12 +468,14 @@ CREATE TABLE IF NOT EXISTS forum_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL CHECK (char_length(title) <= 100),
   content TEXT NOT NULL CHECK (char_length(content) <= 1000),
-  category TEXT NOT NULL CHECK (category IN ('events', 'messages', 'requests')),
+  category TEXT NOT NULL CHECK (category IN ('events', 'messages', 'statements')),
   colonia_id UUID NOT NULL REFERENCES colonias(id) ON DELETE CASCADE,
   author_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   event_date TEXT,
   event_time TEXT,
   event_duration TEXT,
+  file_url TEXT,
+  file_month TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -485,6 +487,12 @@ ALTER TABLE forum_posts
   ADD COLUMN IF NOT EXISTS event_time TEXT;
 ALTER TABLE forum_posts
   ADD COLUMN IF NOT EXISTS event_duration TEXT;
+
+-- Add statement columns if they don't exist (for existing tables)
+ALTER TABLE forum_posts
+  ADD COLUMN IF NOT EXISTS file_url TEXT;
+ALTER TABLE forum_posts
+  ADD COLUMN IF NOT EXISTS file_month TEXT;
 
 -- Ensure RLS is enabled
 ALTER TABLE forum_posts ENABLE ROW LEVEL SECURITY;
@@ -501,11 +509,16 @@ CREATE POLICY "Users can view posts from their colonia"
   USING (colonia_id IN (SELECT colonia_id FROM profiles WHERE id = auth.uid()));
 
 -- Users can create posts in their colonia
+-- Only admins can create posts with category 'statements'
 CREATE POLICY "Users can create posts in their colonia"
   ON forum_posts FOR INSERT
   WITH CHECK (
     colonia_id IN (SELECT colonia_id FROM profiles WHERE id = auth.uid())
     AND author_id = auth.uid()
+    AND (
+      category != 'statements' 
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+    )
   );
 
 -- Users can update their own posts

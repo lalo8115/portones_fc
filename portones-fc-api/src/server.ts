@@ -1506,11 +1506,11 @@ fastify.get('/forum/posts', async (request, reply) => {
     const { category } = request.query as { category?: string }
 
     // Validate category
-    const validCategories = ['events', 'messages', 'requests']
+    const validCategories = ['events', 'messages', 'statements']
     if (!category || !validCategories.includes(category)) {
       reply.status(400).send({
         error: 'Bad Request',
-        message: 'Invalid or missing category parameter. Must be: events, messages, or requests'
+        message: 'Invalid or missing category parameter. Must be: events, messages, or statements'
       })
       return
     }
@@ -1541,6 +1541,8 @@ fastify.get('/forum/posts', async (request, reply) => {
         event_date,
         event_time,
         event_duration,
+        file_url,
+        file_month,
         created_at,
         author_id,
         profiles:author_id (
@@ -1598,6 +1600,8 @@ fastify.get('/forum/posts', async (request, reply) => {
         event_date: (post as any).event_date || null,
         event_time: (post as any).event_time || null,
         event_duration: (post as any).event_duration || null,
+        file_url: (post as any).file_url || null,
+        file_month: (post as any).file_month || null,
         created_at: post.created_at,
         author_name: authorNames[post.author_id] || 'Usuario',
         author_address: authorAddress,
@@ -1619,13 +1623,15 @@ fastify.get('/forum/posts', async (request, reply) => {
 fastify.post('/forum/posts', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { title, content, category, event_date, event_time, event_duration } = request.body as {
+    const { title, content, category, event_date, event_time, event_duration, file_url, file_month } = request.body as {
       title?: string
       content?: string
       category?: string
       event_date?: string
       event_time?: string
       event_duration?: string
+      file_url?: string
+      file_month?: string
     }
 
     // Validate input
@@ -1637,11 +1643,11 @@ fastify.post('/forum/posts', async (request, reply) => {
       return
     }
 
-    const validCategories = ['events', 'messages', 'requests']
+    const validCategories = ['events', 'messages', 'statements']
     if (!validCategories.includes(category)) {
       reply.status(400).send({
         error: 'Bad Request',
-        message: 'Categoría inválida. Debe ser: events, messages, o requests'
+        message: 'Categoría inválida. Debe ser: events, messages, o statements'
       })
       return
     }
@@ -1666,7 +1672,7 @@ fastify.post('/forum/posts', async (request, reply) => {
     // Get user profile to verify colonia
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, house_id, houses!fk_profiles_house(street, external_number)')
+      .select('colonia_id, house_id, role, houses!fk_profiles_house(street, external_number)')
       .eq('id', user.id)
       .single()
 
@@ -1674,6 +1680,15 @@ fastify.post('/forum/posts', async (request, reply) => {
       reply.status(403).send({
         error: 'Forbidden',
         message: 'Debes estar asignado a una colonia para publicar en el foro'
+      })
+      return
+    }
+
+    // Validate that only admins can create statements
+    if (category === 'statements' && (profile as any).role !== 'admin') {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Solo los administradores pueden publicar estados de cuenta'
       })
       return
     }
@@ -1689,9 +1704,11 @@ fastify.post('/forum/posts', async (request, reply) => {
         author_id: user.id,
         event_date: category === 'events' ? event_date : null,
         event_time: category === 'events' ? event_time : null,
-        event_duration: category === 'events' ? event_duration : null
+        event_duration: category === 'events' ? event_duration : null,
+        file_url: category === 'statements' ? file_url : null,
+        file_month: category === 'statements' ? file_month : null
       })
-      .select('id, title, content, category, event_date, event_time, event_duration, created_at, author_id')
+      .select('id, title, content, category, event_date, event_time, event_duration, file_url, file_month, created_at, author_id')
       .single()
 
     if (insertError || !newPost) {
@@ -1721,6 +1738,8 @@ fastify.post('/forum/posts', async (request, reply) => {
       event_date: (newPost as any).event_date || null,
       event_time: (newPost as any).event_time || null,
       event_duration: (newPost as any).event_duration || null,
+      file_url: (newPost as any).file_url || null,
+      file_month: (newPost as any).file_month || null,
       created_at: newPost.created_at,
       author_name: authorName,
       author_address: authorAddress,
