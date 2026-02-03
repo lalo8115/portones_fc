@@ -146,6 +146,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   ]
 
   const selectedCategoryData = categories.find(c => c.id === selectedCategory)
+  const isFormValid = !!newPostTitle.trim() && !!newPostContent.trim()
 
   const durationOptions = [
     { label: '15 minutos', value: '15 minutos' },
@@ -218,25 +219,17 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       return
     }
 
-    // Validar campos de evento si la categoría es events
-    if (selectedCategory === 'events') {
-      if (!eventDate || !eventTime || !eventDuration) {
-        Alert.alert('Error', 'Por favor completa la fecha, hora y duración del evento')
-        return
-      }
-    }
-
     const postData: CreatePostData = {
       title: newPostTitle,
       content: newPostContent,
       category: selectedCategory
     }
 
-    // Agregar campos de evento si la categoría es events
+    // Agregar campos de evento si existen
     if (selectedCategory === 'events') {
-      postData.event_date = eventDate
-      postData.event_time = eventTime
-      postData.event_duration = eventDuration
+      if (eventDate) postData.event_date = eventDate
+      if (eventTime) postData.event_time = eventTime
+      if (eventDuration) postData.event_duration = eventDuration
     }
 
     createPostMutation.mutate(postData)
@@ -344,6 +337,11 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                         Confirmar
                       </Button>
                     )}
+                    {!eventDate && (
+                      <Text fontSize='$2' color='$gray10'>
+                        Opcional
+                      </Text>
+                    )}
                   </YStack>
 
                   <XStack space='$3'>
@@ -384,6 +382,11 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                           OK
                         </Button>
                       )}
+                      {!eventTime && (
+                        <Text fontSize='$2' color='$gray10'>
+                          Opcional
+                        </Text>
+                      )}
                     </YStack>
 
                     <YStack flex={1} space='$2'>
@@ -404,6 +407,11 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                         </Text>
                         <ChevronDown size={16} color='$gray11' />
                       </Button>
+                      {!eventDuration && (
+                        <Text fontSize='$2' color='$gray10'>
+                          Opcional
+                        </Text>
+                      )}
                     </YStack>
                   </XStack>
 
@@ -474,11 +482,16 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                 size='$4'
                 theme='blue'
                 onPress={handleCreatePost}
-                disabled={createPostMutation.isPending}
+                disabled={createPostMutation.isPending || !isFormValid}
                 icon={createPostMutation.isPending ? <Spinner size='small' /> : <Send size={20} />}
               >
                 {createPostMutation.isPending ? 'Publicando...' : 'Publicar'}
               </Button>
+              {!isFormValid && (
+                <Text fontSize='$2' color='$red10' textAlign='center'>
+                  Completa los campos obligatorios para publicar
+                </Text>
+              )}
             </YStack>
           </YStack>
         </ScrollView>
