@@ -753,7 +753,7 @@ fastify.get('/payment/status', async (request, reply) => {
     // Obtener colonia y casa (house_id)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, house_id, colonias!fk_profiles_colonia(maintenance_monthly_amount), houses!fk_profiles_house(id)')
+      .select('colonia_id, house_id, colonias!fk_profiles_colonia(maintenance_monthly_amount)')
       .eq('id', user.id)
       .single() as any
 
