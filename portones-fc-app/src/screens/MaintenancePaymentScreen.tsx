@@ -36,7 +36,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
   const monthlyAmount = 500 // Fallback en caso de que no venga de la colonia
   const currency = 'MXN'
   const amountToPay = profile?.colonia?.maintenance_monthly_amount ?? monthlyAmount
-  const adeudoMeses = profile?.adeudo_meses ?? 0
+  const adeudoMeses = profile?.house?.adeudos_months ?? 0
   const totalAdeudo = amountToPay * adeudoMeses
 
   // Función para formatear número de tarjeta (xxxx xxxx xxxx xxxx)
@@ -342,9 +342,9 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
               <Text fontSize='$4' fontWeight='bold'>
                 {user?.email}
               </Text>
-              {profile?.apartment_unit && (
+              {profile?.house && (
                 <Text fontSize='$3' color='$gray11'>
-                  Departamento: {profile.apartment_unit}
+                  Dirección: {profile.house.street} {profile.house.external_number}
                 </Text>
               )}
               {profile?.colonia?.nombre && (

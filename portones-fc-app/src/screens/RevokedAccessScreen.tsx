@@ -42,7 +42,7 @@ export const RevokedAccessScreen: React.FC<RevokedAccessScreenProps> = ({
   const amountToPay = paymentStatus?.maintenanceAmount ?? profile?.colonia?.maintenance_monthly_amount ?? 500
   const isPaid = paymentStatus?.isPaid ?? false
   const daysUntilPayment = paymentStatus?.daysUntilDue ?? 0
-  const adeudoMeses = profile?.adeudo_meses ?? 0
+  const adeudoMeses = profile?.house?.adeudos_months ?? 0
   const totalAdeudo = amountToPay * adeudoMeses
   const lastPaymentDate = paymentStatus?.lastPaymentDate 
     ? new Date(paymentStatus.lastPaymentDate) 
@@ -74,9 +74,9 @@ export const RevokedAccessScreen: React.FC<RevokedAccessScreenProps> = ({
           <Text fontSize='$4' fontWeight='600' color='$color'>
             {user?.email}
           </Text>
-          {profile?.apartment_unit && (
+          {profile?.house && (
             <Text fontSize='$3' color='$gray11'>
-              {profile.apartment_unit}
+              {profile.house.street} {profile.house.external_number}
             </Text>
           )}
           {profile?.colonia?.nombre && (

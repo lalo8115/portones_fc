@@ -13,6 +13,7 @@ interface AccessRecord {
   user_id: string
   user_email: string | null
   apartment_unit: string | null
+  user_address?: string | null
   action: 'OPEN' | 'CLOSE'
   timestamp: string
   method: 'APP' | 'QR' | 'MANUAL' | 'AUTOMATIC' | string

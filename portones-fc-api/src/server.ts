@@ -681,18 +681,17 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       fastify.log.error({ error: paymentError }, 'Error al guardar el pago en la base de datos')
     }
 
-    // Actualizar perfil: resetear adeudo_meses a 0 y cambiar role a 'user'
+    // Actualizar perfil y casa: resetear adeudos_months a 0 y cambiar role a 'user'
     // Openpay puede devolver 'completed' o 'success', vamos a aceptar ambos
     const chargeSuccessful = charge.status === 'completed' || charge.status === 'success' || !charge.error
     
     fastify.log.info('Verificando si pago fue exitoso. Status: ' + charge.status + ', Successful: ' + chargeSuccessful)
     
     if (chargeSuccessful) {
-      fastify.log.info('Pago completado para usuario ' + user.id + '. Actualizando perfil...')
+      fastify.log.info('Pago completado para usuario ' + user.id + '. Actualizando perfil y casa...')
       const { data: updateData, error: updateError } = await supabaseAdmin
         .from('profiles')
         .update({
-          adeudo_meses: 0,
           role: 'user',
           updated_at: currentDate.toISOString()
         })
@@ -703,6 +702,23 @@ fastify.post('/payment/maintenance', async (request, reply) => {
         fastify.log.error({ error: updateError }, 'Error al actualizar el perfil después del pago')
       } else {
         fastify.log.info({ data: updateData }, 'Perfil actualizado exitosamente para usuario ' + user.id)
+      }
+
+      // Actualizar la casa para resetear adeudos_months a 0
+      if (houseId) {
+        const { error: houseUpdateError } = await supabaseAdmin
+          .from('houses')
+          .update({
+            adeudos_months: 0,
+            updated_at: currentDate.toISOString()
+          })
+          .eq('id', houseId)
+
+        if (houseUpdateError) {
+          fastify.log.error({ error: houseUpdateError }, 'Error al actualizar la casa después del pago')
+        } else {
+          fastify.log.info('Casa actualizada exitosamente para user ' + user.id)
+        }
       }
     } else {
       fastify.log.warn('Pago pendiente o fallido para usuario ' + user.id + ' (status: ' + charge.status + ')')
@@ -1007,7 +1023,7 @@ fastify.post('/gate/open', async (request, reply) => {
     // 1. Get user profile and validate role
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('role, apartment_unit, colonia_id')
+      .select('role, house_id, colonia_id')
       .eq('id', user.id)
       .single()
 
@@ -1189,7 +1205,7 @@ fastify.post('/gate/close', async (request, reply) => {
     // 1. Get user profile and validate role
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('role, apartment_unit, colonia_id')
+      .select('role, house_id, colonia_id')
       .eq('id', user.id)
       .single()
 
@@ -1526,7 +1542,11 @@ fastify.get('/forum/posts', async (request, reply) => {
         author_id,
         profiles:author_id (
           id,
-          apartment_unit
+          house_id,
+          houses:house_id (
+            street,
+            external_number
+          )
         )
       `)
       .eq('colonia_id', profile.colonia_id)
@@ -1559,10 +1579,13 @@ fastify.get('/forum/posts', async (request, reply) => {
 
     // Format response
     const formattedPosts = posts?.map(post => {
-      const profileData = (post as { profiles?: { apartment_unit?: string } | { apartment_unit?: string }[] }).profiles
-      const authorUnit = Array.isArray(profileData)
-        ? profileData[0]?.apartment_unit
-        : profileData?.apartment_unit
+      const profileData = (post as any).profiles
+      const houseData = Array.isArray(profileData)
+        ? profileData[0]?.houses
+        : profileData?.houses
+      const authorAddress = houseData
+        ? `${houseData.street} ${houseData.external_number}`
+        : 'Dirección no disponible'
 
       return {
       id: post.id,
@@ -1571,7 +1594,7 @@ fastify.get('/forum/posts', async (request, reply) => {
       category: post.category,
       created_at: post.created_at,
       author_name: authorNames[post.author_id] || 'Usuario',
-      author_unit: authorUnit,
+      author_address: authorAddress,
       replies_count: 0 // For future implementation
     }
     }) || []
@@ -1634,7 +1657,7 @@ fastify.post('/forum/posts', async (request, reply) => {
     // Get user profile to verify colonia
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, apartment_unit')
+      .select('colonia_id, house_id, houses!fk_profiles_house(street, external_number)')
       .eq('id', user.id)
       .single()
 
@@ -1671,6 +1694,12 @@ fastify.post('/forum/posts', async (request, reply) => {
     // Get author name
     const { data: userData } = await supabaseAdmin.auth.admin.getUserById(user.id)
     const authorName = userData?.user?.email?.split('@')[0] || 'Usuario'
+    
+    // Format house address
+    const houseData = (profile as any).houses
+    const authorAddress = houseData
+      ? `${houseData.street} ${houseData.external_number}`
+      : 'Dirección no disponible'
 
     reply.status(201).send({
       id: newPost.id,
@@ -1679,7 +1708,7 @@ fastify.post('/forum/posts', async (request, reply) => {
       category: newPost.category,
       created_at: newPost.created_at,
       author_name: authorName,
-      author_unit: profile.apartment_unit ?? undefined,
+      author_address: authorAddress,
       replies_count: 0
     })
   } catch (error) {
@@ -1705,12 +1734,18 @@ fastify.post('/support/send', async (request, reply) => {
       return
     }
 
-    // Get user profile
+    // Get user profile and house info
     const { data: profile } = await supabaseAdmin
       .from('profiles')
-      .select('apartment_unit, colonia_id')
+      .select('colonia_id, house_id, houses!fk_profiles_house(street, external_number)')
       .eq('id', user.id)
       .single()
+
+    // Format house address
+    const houseData = (profile as any)?.houses
+    const apartmentUnit = houseData
+      ? `${houseData.street} ${houseData.external_number}`
+      : null
 
     // Save message to database (creates a support_messages table)
     const { data: supportMessage, error: insertError } = await supabaseAdmin
@@ -1718,7 +1753,7 @@ fastify.post('/support/send', async (request, reply) => {
       .insert({
         user_id: user.id,
         user_email: user.email,
-        apartment_unit: profile?.apartment_unit || null,
+        apartment_unit: apartmentUnit,
         colonia_id: profile?.colonia_id || null,
         message: message.trim(),
         created_at: new Date().toISOString()
