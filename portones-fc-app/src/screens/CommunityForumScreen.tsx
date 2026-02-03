@@ -681,6 +681,40 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                     </Text>
                   </XStack>
 
+                  {/* Información del evento (solo para eventos) */}
+                  {post.category === 'events' && (post.event_date || post.event_time || post.event_duration) && (
+                    <Card backgroundColor='$blue2' padding='$2' borderRadius='$2'>
+                      <XStack space='$3' flexWrap='wrap'>
+                        {post.event_date && (
+                          <XStack space='$1.5' alignItems='center'>
+                            <CalendarIcon size={14} color='$blue10' />
+                            <Text fontSize='$2' color='$blue11' fontWeight='600'>
+                              {post.event_date}
+                            </Text>
+                          </XStack>
+                        )}
+                        {post.event_time && (
+                          <XStack space='$1.5' alignItems='center'>
+                            <Clock size={14} color='$blue10' />
+                            <Text fontSize='$2' color='$blue11' fontWeight='600'>
+                              {post.event_time}
+                            </Text>
+                          </XStack>
+                        )}
+                        {post.event_duration && (
+                          <XStack space='$1.5' alignItems='center'>
+                            <Text fontSize='$2' color='$blue11'>
+                              ⏱
+                            </Text>
+                            <Text fontSize='$2' color='$blue11' fontWeight='600'>
+                              {post.event_duration}
+                            </Text>
+                          </XStack>
+                        )}
+                      </XStack>
+                    </Card>
+                  )}
+
                   {/* Contenido del post */}
                   <Text fontSize='$3' color='$gray12' numberOfLines={3}>
                     {post.content}

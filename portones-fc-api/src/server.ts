@@ -1538,6 +1538,9 @@ fastify.get('/forum/posts', async (request, reply) => {
         title,
         content,
         category,
+        event_date,
+        event_time,
+        event_duration,
         created_at,
         author_id,
         profiles:author_id (
@@ -1588,15 +1591,18 @@ fastify.get('/forum/posts', async (request, reply) => {
         : 'Dirección no disponible'
 
       return {
-      id: post.id,
-      title: post.title,
-      content: post.content,
-      category: post.category,
-      created_at: post.created_at,
-      author_name: authorNames[post.author_id] || 'Usuario',
-      author_address: authorAddress,
-      replies_count: 0 // For future implementation
-    }
+        id: post.id,
+        title: post.title,
+        content: post.content,
+        category: post.category,
+        event_date: (post as any).event_date || null,
+        event_time: (post as any).event_time || null,
+        event_duration: (post as any).event_duration || null,
+        created_at: post.created_at,
+        author_name: authorNames[post.author_id] || 'Usuario',
+        author_address: authorAddress,
+        replies_count: 0 // For future implementation
+      }
     }) || []
 
     reply.send(formattedPosts)
@@ -1613,10 +1619,13 @@ fastify.get('/forum/posts', async (request, reply) => {
 fastify.post('/forum/posts', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { title, content, category } = request.body as {
+    const { title, content, category, event_date, event_time, event_duration } = request.body as {
       title?: string
       content?: string
       category?: string
+      event_date?: string
+      event_time?: string
+      event_duration?: string
     }
 
     // Validate input
@@ -1654,6 +1663,17 @@ fastify.post('/forum/posts', async (request, reply) => {
       return
     }
 
+    // Validate event fields for events category
+    if (category === 'events') {
+      if (!event_date || !event_time || !event_duration) {
+        reply.status(400).send({
+          error: 'Bad Request',
+          message: 'Faltan campos requeridos para eventos: event_date, event_time, event_duration'
+        })
+        return
+      }
+    }
+
     // Get user profile to verify colonia
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
@@ -1677,9 +1697,12 @@ fastify.post('/forum/posts', async (request, reply) => {
         content: content.trim(),
         category,
         colonia_id: profile.colonia_id,
-        author_id: user.id
+        author_id: user.id,
+        event_date: category === 'events' ? event_date : null,
+        event_time: category === 'events' ? event_time : null,
+        event_duration: category === 'events' ? event_duration : null
       })
-      .select('id, title, content, category, created_at, author_id')
+      .select('id, title, content, category, event_date, event_time, event_duration, created_at, author_id')
       .single()
 
     if (insertError || !newPost) {
@@ -1706,6 +1729,9 @@ fastify.post('/forum/posts', async (request, reply) => {
       title: newPost.title,
       content: newPost.content,
       category: newPost.category,
+      event_date: (newPost as any).event_date || null,
+      event_time: (newPost as any).event_time || null,
+      event_duration: (newPost as any).event_duration || null,
       created_at: newPost.created_at,
       author_name: authorName,
       author_address: authorAddress,
