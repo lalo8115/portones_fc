@@ -1663,17 +1663,6 @@ fastify.post('/forum/posts', async (request, reply) => {
       return
     }
 
-    // Validate event fields for events category
-    if (category === 'events') {
-      if (!event_date || !event_time || !event_duration) {
-        reply.status(400).send({
-          error: 'Bad Request',
-          message: 'Faltan campos requeridos para eventos: event_date, event_time, event_duration'
-        })
-        return
-      }
-    }
-
     // Get user profile to verify colonia
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
