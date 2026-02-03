@@ -471,9 +471,20 @@ CREATE TABLE IF NOT EXISTS forum_posts (
   category TEXT NOT NULL CHECK (category IN ('events', 'messages', 'requests')),
   colonia_id UUID NOT NULL REFERENCES colonias(id) ON DELETE CASCADE,
   author_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  event_date TEXT,
+  event_time TEXT,
+  event_duration TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Add event columns if they don't exist (for existing tables)
+ALTER TABLE forum_posts
+  ADD COLUMN IF NOT EXISTS event_date TEXT;
+ALTER TABLE forum_posts
+  ADD COLUMN IF NOT EXISTS event_time TEXT;
+ALTER TABLE forum_posts
+  ADD COLUMN IF NOT EXISTS event_duration TEXT;
 
 -- Ensure RLS is enabled
 ALTER TABLE forum_posts ENABLE ROW LEVEL SECURITY;

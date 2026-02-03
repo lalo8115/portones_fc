@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
-import { ScrollView, Alert, RefreshControl } from 'react-native'
-import { YStack, XStack, Text, Button, Card, Input, TextArea, Spinner, Circle } from 'tamagui'
-import { ChevronLeft, Plus, MessageCircle, Calendar, AlertCircle, Send, ChevronDown } from '@tamagui/lucide-icons'
+import { ScrollView, Alert, RefreshControl, Platform, TouchableOpacity, Modal } from 'react-native'
+import { YStack, XStack, Text, Button, Card, Input, TextArea, Spinner, Circle, Sheet } from 'tamagui'
+import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, AlertCircle, Send, ChevronDown, Clock } from '@tamagui/lucide-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
+import DateTimePicker from '@react-native-community/datetimepicker'
 
 interface CommunityForumScreenProps {
   apiUrl: string
@@ -20,12 +21,18 @@ interface ForumPost {
   created_at: string
   category: 'events' | 'messages' | 'requests'
   replies_count?: number
+  event_date?: string
+  event_time?: string
+  event_duration?: string
 }
 
 interface CreatePostData {
   title: string
   content: string
   category: 'events' | 'messages' | 'requests'
+  event_date?: string
+  event_time?: string
+  event_duration?: string
 }
 
 const fetchPosts = async (
@@ -82,6 +89,14 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   const [showCreatePost, setShowCreatePost] = useState(false)
   const [newPostTitle, setNewPostTitle] = useState('')
   const [newPostContent, setNewPostContent] = useState('')
+  const [eventDate, setEventDate] = useState('')
+  const [eventTime, setEventTime] = useState('')
+  const [eventDuration, setEventDuration] = useState('')
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [showTimePicker, setShowTimePicker] = useState(false)
+  const [showDurationPicker, setShowDurationPicker] = useState(false)
+  const [datePickerValue, setDatePickerValue] = useState(new Date())
+  const [timePickerValue, setTimePickerValue] = useState(new Date())
 
   const { data: posts, isLoading, refetch } = useQuery({
     queryKey: ['forumPosts', selectedCategory],
@@ -96,6 +111,9 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       setShowCreatePost(false)
       setNewPostTitle('')
       setNewPostContent('')
+      setEventDate('')
+      setEventTime('')
+      setEventDuration('')
       Alert.alert('Éxito', 'Publicación creada correctamente')
     },
     onError: (error: Error) => {
@@ -107,7 +125,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
     {
       id: 'events' as const,
       title: 'Eventos',
-      icon: Calendar,
+      icon: CalendarIcon,
       color: '$blue10',
       description: 'Eventos de la colonia'
     },
@@ -128,6 +146,51 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   ]
 
   const selectedCategoryData = categories.find(c => c.id === selectedCategory)
+
+  const durationOptions = [
+    { label: '15 minutos', value: '15 minutos' },
+    { label: '30 minutos', value: '30 minutos' },
+    { label: '45 minutos', value: '45 minutos' },
+    { label: '1 hora', value: '1 hora' },
+    { label: '1.5 horas', value: '1.5 horas' },
+    { label: '2 horas', value: '2 horas' },
+    { label: '2.5 horas', value: '2.5 horas' },
+    { label: '3 horas', value: '3 horas' },
+    { label: '4 horas', value: '4 horas' },
+    { label: '5 horas', value: '5 horas' },
+    { label: '6 horas', value: '6 horas' },
+    { label: 'Todo el día', value: 'Todo el día' }
+  ]
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false)
+    }
+    if (selectedDate) {
+      setDatePickerValue(selectedDate)
+      const formatted = selectedDate.toLocaleDateString('es-MX', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      })
+      setEventDate(formatted)
+    }
+  }
+
+  const handleTimeChange = (event: any, selectedTime?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false)
+    }
+    if (selectedTime) {
+      setTimePickerValue(selectedTime)
+      const formatted = selectedTime.toLocaleTimeString('es-MX', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      })
+      setEventTime(formatted)
+    }
+  }
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -155,11 +218,28 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       return
     }
 
-    createPostMutation.mutate({
+    // Validar campos de evento si la categoría es events
+    if (selectedCategory === 'events') {
+      if (!eventDate || !eventTime || !eventDuration) {
+        Alert.alert('Error', 'Por favor completa la fecha, hora y duración del evento')
+        return
+      }
+    }
+
+    const postData: CreatePostData = {
       title: newPostTitle,
       content: newPostContent,
       category: selectedCategory
-    })
+    }
+
+    // Agregar campos de evento si la categoría es events
+    if (selectedCategory === 'events') {
+      postData.event_date = eventDate
+      postData.event_time = eventTime
+      postData.event_duration = eventDuration
+    }
+
+    createPostMutation.mutate(postData)
   }
 
   if (showCreatePost) {
@@ -223,6 +303,154 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                   maxLength={100}
                 />
               </YStack>
+
+              {/* Campos específicos para eventos */}
+              {selectedCategory === 'events' && (
+                <>
+                  <YStack space='$2'>
+                    <Text fontSize='$3' fontWeight='600'>
+                      Fecha del Evento
+                    </Text>
+                    <Button
+                      size='$4'
+                      backgroundColor='$background'
+                      borderWidth={1}
+                      borderColor='$gray7'
+                      color='$color'
+                      justifyContent='flex-start'
+                      icon={<CalendarIcon size={18} color='$gray11' />}
+                      onPress={() => setShowDatePicker(true)}
+                    >
+                      <Text color={eventDate ? '$color' : '$gray11'}>
+                        {eventDate || 'Seleccionar fecha'}
+                      </Text>
+                    </Button>
+                    {showDatePicker && (
+                      <DateTimePicker
+                        value={datePickerValue}
+                        mode='date'
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        onChange={handleDateChange}
+                        minimumDate={new Date()}
+                      />
+                    )}
+                    {Platform.OS === 'ios' && showDatePicker && (
+                      <Button
+                        size='$3'
+                        theme='blue'
+                        marginTop='$2'
+                        onPress={() => setShowDatePicker(false)}
+                      >
+                        Confirmar
+                      </Button>
+                    )}
+                  </YStack>
+
+                  <XStack space='$3'>
+                    <YStack flex={1} space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Hora
+                      </Text>
+                      <Button
+                        size='$4'
+                        backgroundColor='$background'
+                        borderWidth={1}
+                        borderColor='$gray7'
+                        color='$color'
+                        justifyContent='flex-start'
+                        icon={<Clock size={18} color='$gray11' />}
+                        onPress={() => setShowTimePicker(true)}
+                      >
+                        <Text color={eventTime ? '$color' : '$gray11'}>
+                          {eventTime || 'HH:MM'}
+                        </Text>
+                      </Button>
+                      {showTimePicker && (
+                        <DateTimePicker
+                          value={timePickerValue}
+                          mode='time'
+                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                          onChange={handleTimeChange}
+                          is24Hour={true}
+                        />
+                      )}
+                      {Platform.OS === 'ios' && showTimePicker && (
+                        <Button
+                          size='$2'
+                          theme='blue'
+                          marginTop='$2'
+                          onPress={() => setShowTimePicker(false)}
+                        >
+                          OK
+                        </Button>
+                      )}
+                    </YStack>
+
+                    <YStack flex={1} space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Duración
+                      </Text>
+                      <Button
+                        size='$4'
+                        backgroundColor='$background'
+                        borderWidth={1}
+                        borderColor='$gray7'
+                        color='$color'
+                        justifyContent='space-between'
+                        onPress={() => setShowDurationPicker(true)}
+                      >
+                        <Text color={eventDuration ? '$color' : '$gray11'}>
+                          {eventDuration || 'Seleccionar'}
+                        </Text>
+                        <ChevronDown size={16} color='$gray11' />
+                      </Button>
+                    </YStack>
+                  </XStack>
+
+                  {/* Duration Picker Modal */}
+                  <Sheet
+                    modal
+                    open={showDurationPicker}
+                    onOpenChange={setShowDurationPicker}
+                    snapPoints={[50]}
+                    dismissOnSnapToBottom
+                  >
+                    <Sheet.Overlay />
+                    <Sheet.Frame padding='$4' backgroundColor='$background'>
+                      <Sheet.Handle />
+                      <YStack space='$3' paddingTop='$3'>
+                        <Text fontSize='$5' fontWeight='bold' textAlign='center'>
+                          Seleccionar Duración
+                        </Text>
+                        <ScrollView style={{ maxHeight: 300 }}>
+                          <YStack space='$2'>
+                            {durationOptions.map((option) => (
+                              <Button
+                                key={option.value}
+                                size='$4'
+                                backgroundColor={eventDuration === option.value ? '$blue4' : '$background'}
+                                borderWidth={1}
+                                borderColor={eventDuration === option.value ? '$blue10' : '$gray7'}
+                                onPress={() => {
+                                  setEventDuration(option.value)
+                                  setShowDurationPicker(false)
+                                }}
+                              >
+                                <Text
+                                  color={eventDuration === option.value ? '$blue10' : '$color'}
+                                  fontWeight={eventDuration === option.value ? 'bold' : 'normal'}
+                                >
+                                  {option.label}
+                                </Text>
+                              </Button>
+                            ))}
+                          </YStack>
+                        </ScrollView>
+                      </YStack>
+                    </Sheet.Frame>
+                  </Sheet>
+                </>
+              )}
 
               <YStack space='$2'>
                 <Text fontSize='$3' fontWeight='600'>
