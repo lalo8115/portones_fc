@@ -244,7 +244,7 @@ fastify.get('/access/history', async (request, reply) => {
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('role, apartment_unit, colonia_id')
+      .select('role, house_id, colonia_id')
       .eq('id', user.id)
       .single()
 
@@ -260,8 +260,8 @@ fastify.get('/access/history', async (request, reply) => {
     let allowedUserIds: string[] = []
     
     if (profile.role !== 'admin') {
-      // Validar que el usuario tenga apartment_unit y colonia_id
-      if (!profile.apartment_unit || !profile.colonia_id) {
+      // Validar que el usuario tenga house_id y colonia_id
+      if (!profile.house_id || !profile.colonia_id) {
         reply.status(403).send({
           error: 'Forbidden',
           message: 'User must belong to a house and community'
@@ -269,12 +269,11 @@ fastify.get('/access/history', async (request, reply) => {
         return
       }
 
-      // Obtener todos los usuarios de la misma casa y colonia
+      // Obtener todos los usuarios de la misma casa
       const { data: householdUsers, error: householdError } = await supabaseAdmin
         .from('profiles')
         .select('id')
-        .eq('apartment_unit', profile.apartment_unit)
-        .eq('colonia_id', profile.colonia_id)
+        .eq('house_id', profile.house_id)
         .neq('role', 'revoked')
 
       if (householdError) {
@@ -348,7 +347,7 @@ fastify.get('/access/history', async (request, reply) => {
       }
     }
 
-    let profilesMap = new Map<string, { apartment_unit: string | null }>()
+    let profilesMap = new Map<string, { house_address: string | null }>()
 
     if (profile.role === 'admin') {
       const profileUserIds = Array.from(
@@ -358,7 +357,7 @@ fastify.get('/access/history', async (request, reply) => {
       if (profileUserIds.length) {
         const { data: profilesData, error: profilesError } = await supabaseAdmin
           .from('profiles')
-          .select('id, apartment_unit')
+          .select('id, house_id, houses!fk_profiles_house(street, external_number)')
           .in('id', profileUserIds)
 
         if (profilesError) {
@@ -366,7 +365,9 @@ fastify.get('/access/history', async (request, reply) => {
         }
 
         profilesData?.forEach((p: any) => {
-          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null })
+          const house = p.houses as any
+          const address = house ? `${house.street} ${house.external_number}` : null
+          profilesMap.set(p.id, { house_address: address })
         })
       }
     } else {
@@ -374,7 +375,7 @@ fastify.get('/access/history', async (request, reply) => {
       if (allowedUserIds.length > 0) {
         const { data: profilesData, error: profilesError } = await supabaseAdmin
           .from('profiles')
-          .select('id, apartment_unit')
+          .select('id, house_id, houses!fk_profiles_house(street, external_number)')
           .in('id', allowedUserIds)
 
         if (profilesError) {
@@ -382,7 +383,9 @@ fastify.get('/access/history', async (request, reply) => {
         }
 
         profilesData?.forEach((p: any) => {
-          profilesMap.set(p.id, { apartment_unit: p.apartment_unit ?? null })
+          const house = p.houses as any
+          const address = house ? `${house.street} ${house.external_number}` : null
+          profilesMap.set(p.id, { house_address: address })
         })
       }
     }
@@ -394,7 +397,7 @@ fastify.get('/access/history', async (request, reply) => {
 
     const records = (logs ?? []).map((log: any) => {
       const gateInfo = gatesMap.get(log.gate_id) || {}
-      const profileInfo = profilesMap.get(log.user_id) || { apartment_unit: null }
+      const profileInfo = profilesMap.get(log.user_id) || { house_address: null }
       const userEmail = emailsMap.get(log.user_id) || null
 
       return {
@@ -404,7 +407,7 @@ fastify.get('/access/history', async (request, reply) => {
       gate_type: gateInfo.type || 'ENTRADA',
       user_id: log.user_id,
       user_email: userEmail,
-      apartment_unit: profileInfo.apartment_unit ?? null,
+      house_address: profileInfo.house_address ?? null,
       action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
       timestamp: log.timestamp,
       method: log.method || 'APP',
@@ -575,7 +578,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     // Obtener colonia y monto de mantenimiento
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, apartment_unit, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
+      .select('colonia_id, house_id, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount), houses!fk_profiles_house(id, street, external_number)')
       .eq('id', user.id)
       .single() as any
 
@@ -592,9 +595,9 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     const coloniaData = (profile?.colonias as any) || {}
     const coloniaAmount = coloniaData?.maintenance_monthly_amount as number | undefined
     const coloniaId = profile?.colonia_id || null
-    const apartmentUnit = profile?.apartment_unit || null
+    const houseId = profile?.house_id || null
 
-    if (!coloniaId || !apartmentUnit) {
+    if (!coloniaId || !houseId) {
       reply.status(400).send({
         error: 'Bad Request',
         message: 'No hay colonia o casa asignada al usuario'
@@ -664,7 +667,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
       .insert({
         user_id: user.id,
         colonia_id: coloniaId,
-        apartment_unit: apartmentUnit,
+        house_id: houseId,
         amount: finalAmount,
         payment_date: currentDate.toISOString(),
         period_month: currentDate.getMonth() + 1,
@@ -731,10 +734,10 @@ fastify.get('/payment/status', async (request, reply) => {
   try {
     const user = (request as any).user
 
-    // Obtener colonia y casa (apartment_unit)
+    // Obtener colonia y casa (house_id)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, apartment_unit, colonias!fk_profiles_colonia(maintenance_monthly_amount)')
+      .select('colonia_id, house_id, colonias!fk_profiles_colonia(maintenance_monthly_amount), houses!fk_profiles_house(id)')
       .eq('id', user.id)
       .single() as any
 
@@ -759,9 +762,9 @@ fastify.get('/payment/status', async (request, reply) => {
     const coloniaData = (profile?.colonias as any) || {}
     const maintenanceAmount = coloniaData?.maintenance_monthly_amount || 500
     const coloniaId = profile?.colonia_id || null
-    const apartmentUnit = profile?.apartment_unit || null
+    const houseId = profile?.house_id || null
 
-    if (!coloniaId || !apartmentUnit) {
+    if (!coloniaId || !houseId) {
       reply.send({
         lastPaymentDate: null,
         lastPaymentAmount: null,
@@ -783,7 +786,7 @@ fastify.get('/payment/status', async (request, reply) => {
       .from('maintenance_payments')
       .select('*')
       .eq('colonia_id', coloniaId)
-      .eq('apartment_unit', apartmentUnit)
+      .eq('house_id', houseId)
       .eq('status', 'completed')
       .order('payment_date', { ascending: false })
       .limit(1)
@@ -948,7 +951,7 @@ fastify.post('/profile/colonia', async (request, reply) => {
       .from('profiles')
       .update({ colonia_id: colonia.id, updated_at: new Date().toISOString() })
       .eq('id', user.id)
-      .select('id, role, apartment_unit, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
+      .select('id, role, house_id, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
       .single()
 
     if (updateError || !updatedProfile) {
@@ -964,7 +967,7 @@ fastify.post('/profile/colonia', async (request, reply) => {
       id: updatedProfile.id,
       email: user.email,
       role: updatedProfile.role,
-      apartment_unit: updatedProfile.apartment_unit,
+      house_id: updatedProfile.house_id,
       colonia_id: updatedProfile.colonia_id,
       colonia: updatedProfile.colonias || null,
       created_at: updatedProfile.created_at,
