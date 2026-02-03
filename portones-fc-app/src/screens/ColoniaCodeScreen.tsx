@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
-import { YStack, XStack, Input, Button, Text, H2, Separator, Card, Select, Adapt, Sheet } from 'tamagui'
+import { YStack, XStack, Input, Button, Text, H2, Separator, Card, Select, Adapt, Sheet, Dialog } from 'tamagui'
 import { useAuth } from '../contexts/AuthContext'
 
 export const ColoniaCodeScreen: React.FC = () => {
-  const { getColoniaStreets, updateApartmentUnit, signOut, user, profile } = useAuth()
+  const { getColoniaStreets, updateApartmentUnit, signOut, user, profile, checkHouseAvailability } = useAuth()
   const [code, setCode] = useState('')
   const [streets, setStreets] = useState<string[]>([])
   const [selectedStreet, setSelectedStreet] = useState('')
@@ -13,6 +13,10 @@ export const ColoniaCodeScreen: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [validatingColonia, setValidatingColonia] = useState(false)
   const [coloniaValidated, setColoniaValidated] = useState(false)
+  const [showDialog, setShowDialog] = useState(false)
+  const [dialogMessage, setDialogMessage] = useState('')
+  const [dialogType, setDialogType] = useState<'success' | 'error'>('success')
+  const [remainingSpots, setRemainingSpots] = useState(0)
 
   const handleValidateColonia = async () => {
     setError('')
@@ -44,8 +48,28 @@ export const ColoniaCodeScreen: React.FC = () => {
     setLoading(true)
 
     try {
+      // Primero verificar si hay espacios disponibles
+      const availability = await checkHouseAvailability(code.trim(), selectedStreet, externalNumber)
+
+      if (!availability.available) {
+        setDialogType('error')
+        setDialogMessage(
+          `Esta casa ha alcanzado el límite de personas registradas (${availability.maxPeople} personas).\n\nPor favor, contacte a la administración de la privada o verifique el domicilio ingresado.`
+        )
+        setShowDialog(true)
+        setLoading(false)
+        return
+      }
+
+      // Si hay espacios disponibles, proceder con el registro
       await updateApartmentUnit(selectedStreet, externalNumber, 1)
       setSuccess(true)
+      setRemainingSpots(availability.remainingSpots - 1)
+      setDialogType('success')
+      setDialogMessage(
+        `¡Acceso válido!\n\nQuedan ${availability.remainingSpots - 1} personas disponibles para registrar en este domicilio.`
+      )
+      setShowDialog(true)
     } catch (err: any) {
       setError(err.message || 'No se pudo actualizar el domicilio')
     } finally {
@@ -109,73 +133,72 @@ export const ColoniaCodeScreen: React.FC = () => {
                 Paso 2: Domicilio
               </Text>
 
-              <YStack space='$2'>
-                <Text fontSize='$2' color='$gray11'>
-                  Selecciona tu calle:
-                </Text>
-                <Select
-                  value={selectedStreet}
-                  onValueChange={setSelectedStreet}
-                >
-                  <Select.Trigger width='100%' height='$4'>
-                    <Select.Value
-                      placeholder='Selecciona una calle...'
-                      color={selectedStreet ? '$gray12' : '$gray10'}
-                    />
-                  </Select.Trigger>
+              <XStack space='$2' alignItems='flex-end'>
+                <YStack flex={7} space='$2'>
+                  <Text fontSize='$2' color='$gray11'>
+                    Calle:
+                  </Text>
+                  <Select
+                    value={selectedStreet}
+                    onValueChange={setSelectedStreet}
+                  >
+                    <Select.Trigger width='100%' height='$4'>
+                      <Select.Value placeholder='Selecciona una calle...' />
+                    </Select.Trigger>
 
-                  <Adapt when='sm' platform='touch'>
-                    <Sheet
-                      native={false}
-                      modal
-                      dismissOnSnapToBottom
-                      animationConfig={{
-                        type: 'spring',
-                        damping: 20,
-                        mass: 1.2,
-                        stiffness: 260
-                      }}
-                    >
-                      <Sheet.Frame>
-                        <Sheet.ScrollView>
-                          <Adapt.Contents />
-                        </Sheet.ScrollView>
-                      </Sheet.Frame>
-                      <Sheet.Overlay />
-                    </Sheet>
-                  </Adapt>
+                    <Adapt when='sm' platform='touch'>
+                      <Sheet
+                        native={false}
+                        modal
+                        dismissOnSnapToBottom
+                        animationConfig={{
+                          type: 'spring',
+                          damping: 20,
+                          mass: 1.2,
+                          stiffness: 260
+                        }}
+                      >
+                        <Sheet.Frame>
+                          <Sheet.ScrollView>
+                            <Adapt.Contents />
+                          </Sheet.ScrollView>
+                        </Sheet.Frame>
+                        <Sheet.Overlay />
+                      </Sheet>
+                    </Adapt>
 
-                  <Select.Content zIndex={200000}>
-                    <Select.Viewport>
-                      <Select.Group>
-                        {streets.map((street, index) => (
-                          <Select.Item
-                            key={`${street}-${index}`}
-                            index={index}
-                            value={street}
-                          >
-                            {street}
-                          </Select.Item>
-                        ))}
-                      </Select.Group>
-                    </Select.Viewport>
-                  </Select.Content>
-                </Select>
-              </YStack>
+                    <Select.Content zIndex={200000}>
+                      <Select.Viewport>
+                        <Select.Group>
+                          {streets.map((street, index) => (
+                            <Select.Item
+                              key={`${street}-${index}`}
+                              index={index}
+                              value={street}
+                            >
+                              <Select.ItemText>{street}</Select.ItemText>
+                            </Select.Item>
+                          ))}
+                        </Select.Group>
+                      </Select.Viewport>
+                    </Select.Content>
+                  </Select>
+                </YStack>
 
-              <YStack space='$2'>
-                <Text fontSize='$2' color='$gray11'>
-                  Número exterior:
-                </Text>
-                <Input
-                  placeholder='Ej: 123'
-                  value={externalNumber}
-                  onChangeText={setExternalNumber}
-                  autoCapitalize='none'
-                  autoCorrect={false}
-                  size='$4'
-                />
-              </YStack>
+                <YStack flex={3} space='$2'>
+                  <Text fontSize='$2' color='$gray11'>
+                    Número ext:
+                  </Text>
+                  <Input
+                    placeholder='Ej: 123'
+                    value={externalNumber}
+                    onChangeText={setExternalNumber}
+                    autoCapitalize='none'
+                    autoCorrect={false}
+                    size='$4'
+                  />
+                </YStack>
+              </XStack>
 
               <Button
                 size='$4'
@@ -229,6 +252,57 @@ export const ColoniaCodeScreen: React.FC = () => {
           </Button>
         </YStack>
       </Card>
+
+      {/* Dialog for messages */}
+      <Dialog modal open={showDialog} onOpenChange={setShowDialog}>
+        <Dialog.Portal>
+          <Dialog.Overlay
+            key='overlay'
+            animation='quick'
+            opacity={0.5}
+            enterStyle={{ opacity: 0 }}
+            exitStyle={{ opacity: 0 }}
+          />
+          <Dialog.Content
+            bordered
+            elevate
+            key='content'
+            animateOnly={['transform', 'opacity']}
+            animation={[
+              'quick',
+              {
+                opacity: {
+                  overshootClamping: true,
+                },
+              },
+            ]}
+            enterStyle={{ x: 0, y: -20, opacity: 0, scale: 0.9 }}
+            exitStyle={{ x: 0, y: 10, opacity: 0, scale: 0.95 }}
+            space
+            maxWidth={400}
+          >
+            <Dialog.Title
+              color={dialogType === 'success' ? '$green10' : '$red10'}
+            >
+              {dialogType === 'success' ? '✓ Éxito' : '⚠ Atención'}
+            </Dialog.Title>
+            <Dialog.Description>
+              <Text>{dialogMessage}</Text>
+            </Dialog.Description>
+
+            <XStack alignSelf='flex-end' gap='$3' marginTop='$4'>
+              <Dialog.Close displayWhenAdapted asChild>
+                <Button
+                  theme={dialogType === 'success' ? 'green' : 'blue'}
+                  aria-label='Close'
+                >
+                  Aceptar
+                </Button>
+              </Dialog.Close>
+            </XStack>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog>
     </YStack>
   )
 }

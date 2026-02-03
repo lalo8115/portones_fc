@@ -1363,6 +1363,76 @@ fastify.post('/gate/close', async (request, reply) => {
 })
 
 // Update apartment unit route
+// Check house availability
+fastify.post('/profile/check-house-availability', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { colonia_id, street, external_number } = request.body as {
+      colonia_id?: string
+      street?: string
+      external_number?: string
+    }
+
+    if (!colonia_id || !street || !external_number) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'colonia_id, street y external_number son requeridos'
+      })
+      return
+    }
+
+    // Find the house
+    const { data: house, error: houseError } = await supabaseAdmin
+      .from('houses')
+      .select('id, number_of_people')
+      .eq('colonia_id', colonia_id)
+      .eq('street', street.trim())
+      .eq('external_number', external_number.trim())
+      .single()
+
+    if (houseError || !house) {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'No se encontró la casa con ese domicilio'
+      })
+      return
+    }
+
+    // Count current occupants (excluding revoked users)
+    const { count, error: countError } = await supabaseAdmin
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('house_id', house.id)
+      .neq('role', 'revoked')
+
+    if (countError) {
+      fastify.log.error({ error: countError }, 'Error counting house occupants')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Error al verificar los espacios disponibles'
+      })
+      return
+    }
+
+    const currentOccupants = count || 0
+    const maxPeople = house.number_of_people || 0
+    const remainingSpots = maxPeople - currentOccupants
+
+    reply.send({
+      available: remainingSpots > 0,
+      remainingSpots: Math.max(0, remainingSpots),
+      maxPeople,
+      currentOccupants
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /profile/check-house-availability')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to check house availability'
+    })
+  }
+})
+
 fastify.put('/profile/apartment-unit', async (request, reply) => {
   try {
     const user = (request as any).user
