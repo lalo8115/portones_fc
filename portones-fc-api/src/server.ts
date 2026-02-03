@@ -1483,33 +1483,21 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
       return
     }
 
-    // Create or update house
-    let house
-    if (userProfile.house_id) {
-      // Update existing house
-      const { data: updatedHouse, error: updateError } = await supabaseAdmin
-        .from('houses')
-        .update({
-          street: street.trim(),
-          external_number: external_number.trim(),
-          number_of_people: number_of_people || 1,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', userProfile.house_id)
-        .select('*')
-        .single()
+    // First, check if the house already exists in the database
+    const { data: existingHouse, error: findError } = await supabaseAdmin
+      .from('houses')
+      .select('*')
+      .eq('colonia_id', userProfile.colonia_id)
+      .eq('street', street.trim())
+      .eq('external_number', external_number.trim())
+      .single()
 
-      if (updateError || !updatedHouse) {
-        fastify.log.error({ error: updateError }, 'Error updating house')
-        reply.status(500).send({
-          error: 'Server Error',
-          message: 'No se pudo actualizar la casa'
-        })
-        return
-      }
-      house = updatedHouse
+    let house
+    if (existingHouse && !findError) {
+      // House already exists, use it
+      house = existingHouse
     } else {
-      // Create new house
+      // House doesn't exist, create it
       const { data: newHouse, error: createError } = await supabaseAdmin
         .from('houses')
         .insert({
