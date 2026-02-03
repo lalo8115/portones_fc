@@ -28,7 +28,7 @@ const AppContent: React.FC = () => {
     return <LoginScreen />
   }
 
-  if (!profile?.colonia_id) {
+  if (!profile?.colonia_id || !profile?.house_id) {
     return <ColoniaCodeScreen />
   }
 

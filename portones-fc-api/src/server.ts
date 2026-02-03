@@ -843,7 +843,7 @@ fastify.get('/profile', async (request, reply) => {
     // Get user profile
     let { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
+      .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount), houses!fk_profiles_house(id, street, external_number, number_of_people)')
       .eq('id', user.id)
       .single()
 
@@ -870,7 +870,7 @@ fastify.get('/profile', async (request, reply) => {
           // Profile was created by another request; re-fetch it
           const { data: existingProfile, error: fetchError } = await supabaseAdmin
             .from('profiles')
-            .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount)')
+            .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount), houses!fk_profiles_house(id, street, external_number, number_of_people)')
             .eq('id', user.id)
             .single()
 
@@ -901,10 +901,10 @@ fastify.get('/profile', async (request, reply) => {
       id: profile.id,
       email: user.email,
       role: profile.role,
-      apartment_unit: profile.apartment_unit,
+      house_id: profile.house_id,
       colonia_id: profile.colonia_id,
       colonia: profile.colonias || null,
-      adeudo_meses: profile.adeudo_meses || 0,
+      house: profile.houses || null,
       created_at: profile.created_at,
       updated_at: profile.updated_at
     })

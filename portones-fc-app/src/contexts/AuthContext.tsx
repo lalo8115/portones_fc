@@ -20,7 +20,7 @@ interface Colonia {
 interface UserProfile {
   id: string
   email: string
-  role: 'admin' | 'resident' | 'revoked'
+  role: 'admin' | 'user' | 'revoked'
   house_id: string | null
   colonia_id: string | null
   colonia: Colonia | null
