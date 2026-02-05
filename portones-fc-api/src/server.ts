@@ -428,6 +428,132 @@ fastify.get('/access/history', async (request, reply) => {
   }
 })
 
+// Admin maintenance payment report
+fastify.get('/admin/maintenance-report', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { month: monthRaw, year: yearRaw } = request.query as any
+
+    const now = new Date()
+    const parsedMonth = Number(monthRaw)
+    const parsedYear = Number(yearRaw)
+    const periodMonth = Number.isFinite(parsedMonth)
+      ? Math.min(Math.max(parsedMonth, 1), 12)
+      : now.getMonth() + 1
+    const periodYear = Number.isFinite(parsedYear)
+      ? Math.max(parsedYear, 2000)
+      : now.getFullYear()
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role, colonia_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    if (profile.role !== 'admin') {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Admin access required'
+      })
+      return
+    }
+
+    if (!profile.colonia_id) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Admin must belong to a colonia'
+      })
+      return
+    }
+
+    const { data: houses, error: housesError } = await supabaseAdmin
+      .from('houses')
+      .select('id, street, external_number, adeudos_months')
+      .eq('colonia_id', profile.colonia_id)
+
+    if (housesError) {
+      throw housesError
+    }
+
+    const { data: payments, error: paymentsError } = await supabaseAdmin
+      .from('maintenance_payments')
+      .select('id, house_id, amount, payment_date, period_month, period_year, status')
+      .eq('colonia_id', profile.colonia_id)
+      .eq('period_month', periodMonth)
+      .eq('period_year', periodYear)
+      .eq('status', 'completed')
+
+    if (paymentsError) {
+      throw paymentsError
+    }
+
+    const paymentsByHouse = new Map<string, { last_payment_date?: string; last_payment_amount?: number }>()
+    payments?.forEach((payment: any) => {
+      if (!payment.house_id) return
+      const existing = paymentsByHouse.get(payment.house_id)
+      if (!existing || (payment.payment_date && payment.payment_date > (existing.last_payment_date || ''))) {
+        paymentsByHouse.set(payment.house_id, {
+          last_payment_date: payment.payment_date,
+          last_payment_amount: payment.amount
+        })
+      }
+    })
+
+    const paidSet = new Set(Array.from(paymentsByHouse.keys()))
+
+    const paid = (houses ?? [])
+      .filter((house: any) => paidSet.has(house.id))
+      .map((house: any) => {
+        const paymentInfo = paymentsByHouse.get(house.id) || {}
+        return {
+          house_id: house.id,
+          address: `${house.street} ${house.external_number}`,
+          adeudos_months: house.adeudos_months ?? 0,
+          last_payment_date: paymentInfo.last_payment_date ?? null,
+          last_payment_amount: paymentInfo.last_payment_amount ?? null
+        }
+      })
+
+    const unpaid = (houses ?? [])
+      .filter((house: any) => !paidSet.has(house.id))
+      .map((house: any) => ({
+        house_id: house.id,
+        address: `${house.street} ${house.external_number}`,
+        adeudos_months: house.adeudos_months ?? 0,
+        last_payment_date: null,
+        last_payment_amount: null
+      }))
+
+    reply.send({
+      period: {
+        month: periodMonth,
+        year: periodYear
+      },
+      paid,
+      unpaid,
+      totals: {
+        total: (houses ?? []).length,
+        paid: paid.length,
+        unpaid: unpaid.length
+      }
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /admin/maintenance-report')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to fetch maintenance report'
+    })
+  }
+})
+
 // Ruta de prueba MQTT
 fastify.post('/dev/test-mqtt', async (request, reply) => {
   try {

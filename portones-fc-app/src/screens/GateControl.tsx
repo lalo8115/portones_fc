@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react'
 import { ScrollView, View, Animated, PanResponder, Dimensions, Alert, Linking } from 'react-native'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, YStack, Text, Spinner, Circle, XStack, Card } from 'tamagui'
-import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, CreditCard, Home, MapPin} from '@tamagui/lucide-icons'
+import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, Home, MapPin} from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
 import QRCode from 'react-native-qrcode-svg'
 import { CameraView, useCameraPermissions } from 'expo-camera'
@@ -10,6 +10,9 @@ import { AnimatedBackground } from '../components/AnimatedBackground'
 import { AccessHistoryScreen } from './AccessHistoryScreen'
 import { CommunityForumScreen } from './CommunityForumScreen'
 import { SupportScreen } from './SupportScreen'
+import { PaymentStatusScreen } from './PaymentStatusScreen'
+import { AdminPanelScreen } from './AdminPanelScreen'
+import { AdminPaymentReportScreen } from './AdminPaymentReportScreen'
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -254,6 +257,9 @@ export const GateControl: React.FC<GateControlProps> = ({
   const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [showCommunityForum, setShowCommunityForum] = useState(false)
   const [showSupport, setShowSupport] = useState(false)
+  const [showPaymentStatus, setShowPaymentStatus] = useState(false)
+  const [showAdminPanel, setShowAdminPanel] = useState(false)
+  const [showAdminPaymentReport, setShowAdminPaymentReport] = useState(false)
   const [qrValue, setQrValue] = useState<string | null>(null)
   const [qrExpiresAt, setQrExpiresAt] = useState<Date | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -290,6 +296,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   })
 
   const gates = gatesResponse?.gates || []
+  const isAdmin = profile?.role === 'admin'
 
   // Debug: Log para ver los datos que llegan
   React.useEffect(() => {
@@ -500,22 +507,9 @@ export const GateControl: React.FC<GateControlProps> = ({
     </YStack>
   )
 
-  // Componente para menú de opciones de la app
-  const PaymentStatusScreen = () => {
-    const [selectedOption, setSelectedOption] = useState<string | null>(null)
-    
-    // Usar datos reales del backend o valores por defecto
-    const amountToPay = paymentStatus?.maintenanceAmount ?? profile?.colonia?.maintenance_monthly_amount ?? 500
+  const MenuOptionsList = () => {
     const isPaid = paymentStatus?.isPaid ?? false
-    const daysUntilPayment = paymentStatus?.daysUntilDue ?? 0
-    const lastPaymentDate = paymentStatus?.lastPaymentDate 
-      ? new Date(paymentStatus.lastPaymentDate) 
-      : null
-    const nextPaymentDate = paymentStatus?.nextPaymentDue 
-      ? new Date(paymentStatus.nextPaymentDue) 
-      : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
 
-    // Opciones del menú
     const menuOptions = [
       {
         id: 'payment',
@@ -540,6 +534,17 @@ export const GateControl: React.FC<GateControlProps> = ({
         icon: '📋',
         color: '$orange10',
       },
+      ...(isAdmin
+        ? [
+            {
+              id: 'admin',
+              title: 'Panel Admin',
+              description: 'Accesos y pagos de toda la privada',
+              icon: '🛡️',
+              color: '$red10',
+            }
+          ]
+        : []),
       {
         id: 'notifications',
         title: 'Notificaciones',
@@ -556,164 +561,6 @@ export const GateControl: React.FC<GateControlProps> = ({
       },
     ]
 
-    // Si hay una opción seleccionada, mostrar su detalle
-    if (selectedOption === 'payment') {
-      return (
-        <YStack padding='$3.5' space='$3'>
-          <XStack alignItems='center' space='$2' marginBottom='$2'>
-            <Button
-              size='$3'
-              chromeless
-              icon={<Text fontSize='$5'>←</Text>}
-              onPress={() => setSelectedOption(null)}
-            />
-            <Text fontSize='$6' fontWeight='bold'>
-              Estado de Pago
-            </Text>
-          </XStack>
-
-          {/* Estado del pago */}
-          <Card 
-            elevate 
-            size='$3.5' 
-            bordered 
-            padding='$3.5' 
-            backgroundColor={!isPaid ? '$red2' : '$green2'}
-          >
-            <YStack space='$2.5' alignItems='center'>
-              <Circle 
-                size={70} 
-                backgroundColor={!isPaid ? '$red10' : '$green10'} 
-                elevate
-              >
-                <Text fontSize='$7' color='white'>
-                  {!isPaid ? '!' : '✓'}
-                </Text>
-              </Circle>
-              <Text 
-                fontSize='$5.5' 
-                fontWeight='bold' 
-                color={!isPaid ? '$red11' : '$green11'}
-              >
-                {!isPaid ? 'Pago Pendiente' : 'Pago al Corriente'}
-              </Text>
-              <Text fontSize='$3' color='$gray11' textAlign='center'>
-                {!isPaid 
-                  ? 'Tu pago mensual está pendiente'
-                  : 'Tu siguiente pago vence pronto'}
-              </Text>
-            </YStack>
-          </Card>
-
-          {/* Información de monto */}
-          <Card elevate size='$3.5' bordered padding='$3.5' backgroundColor='$blue2'>
-            <YStack space='$2.5'>
-              <YStack space='$1'>
-                <Text fontSize='$2.5' color='$gray11'>
-                  Cuota Mensual
-                </Text>
-                <Text fontSize='$6.5' fontWeight='bold' color='$blue11'>
-                  ${amountToPay.toFixed(2)} MXN
-                </Text>
-              </YStack>
-              <YStack 
-                height={1} 
-                backgroundColor='$gray5' 
-                width='100%'
-              />
-              <XStack justifyContent='space-between'>
-                <YStack space='$1'>
-                  <Text fontSize='$2' color='$gray10'>
-                    Último Pago
-                  </Text>
-                  <Text fontSize='$2.5' fontWeight='600' color='$gray12'>
-                    {lastPaymentDate ? lastPaymentDate.toLocaleDateString('es-MX', { 
-                      day: '2-digit', 
-                      month: 'short', 
-                      year: 'numeric' 
-                    }) : 'Sin pagos'}
-                  </Text>
-                </YStack>
-                <YStack space='$1' alignItems='flex-end'>
-                  <Text fontSize='$2' color='$gray10'>
-                    Próximo Pago
-                  </Text>
-                  <Text fontSize='$2.5' fontWeight='600' color='$gray12'>
-                    {nextPaymentDate.toLocaleDateString('es-MX', { 
-                      day: '2-digit', 
-                      month: 'short', 
-                      year: 'numeric' 
-                    })}
-                  </Text>
-                </YStack>
-              </XStack>
-            </YStack>
-          </Card>
-
-          {/* Días hasta el próximo pago */}
-          <Card elevate size='$3.5' bordered padding='$3.5'>
-            <XStack space='$2.5' alignItems='center'>
-              <Circle size={45} backgroundColor='$orange10' elevate>
-                <Text fontSize='$4.5' fontWeight='bold' color='white'>
-                  {daysUntilPayment}
-                </Text>
-              </Circle>
-              <YStack flex={1}>
-                <Text fontSize='$3.5' fontWeight='600'>
-                  {daysUntilPayment === 1 
-                    ? 'Día restante' 
-                    : `Días restantes`}
-                </Text>
-                <Text fontSize='$2.5' color='$gray11'>
-                  Hasta el próximo periodo de pago
-                </Text>
-              </YStack>
-            </XStack>
-          </Card>
-
-          {/* Información adicional */}
-          {profile?.colonia?.nombre && (
-            <Card elevate size='$2.5' bordered padding='$2.5' backgroundColor='$gray2'>
-              <XStack space='$3' justifyContent='space-between'>
-                <YStack space='$1' flex={1}>
-                  <Text fontSize='$2.5' color='$gray11'>
-                    Colonia
-                  </Text>
-                  <Text fontSize='$3.5' fontWeight='600'>
-                    {profile.colonia.nombre}
-                  </Text>
-                </YStack>
-                {profile?.house && (
-                  <YStack space='$1' alignItems='flex-end'>
-                    <Text fontSize='$2.5' color='$gray11'>
-                      Domicilio
-                    </Text>
-                    <Text fontSize='$3.5' fontWeight='600'>
-                      {profile.house.street} {profile.house.external_number}
-                    </Text>
-                  </YStack>
-                )}
-              </XStack>
-            </Card>
-          )}
-
-          {/* Botón de pago */}
-          {!isPaid && (
-            <Button
-              width='100%'
-              size='$3.5'
-              theme='green'
-              onPress={onNavigateToPayment}
-            >
-              <CreditCard size={19} />
-              <Text marginLeft='$2'>Realizar Pago Ahora</Text>
-            </Button>
-          )}
-        </YStack>
-      )
-    }
-
-    // Vista principal del menú de opciones
     return (
       <YStack padding='$3.5' space='$3'>
         <YStack space='$1.5' marginBottom='$2'>
@@ -737,15 +584,16 @@ export const GateControl: React.FC<GateControlProps> = ({
               pressStyle={{ scale: 0.97, opacity: 0.8 }}
               onPress={() => {
                 if (option.id === 'payment') {
-                  setSelectedOption('payment')
+                  setShowPaymentStatus(true)
                 } else if (option.id === 'history') {
                   setShowAccessHistory(true)
                 } else if (option.id === 'colonia') {
                   setShowCommunityForum(true)
+                } else if (option.id === 'admin') {
+                  setShowAdminPanel(true)
                 } else if (option.id === 'support') {
                   setShowSupport(true)
                 } else {
-                  // Aquí puedes agregar la lógica para otras opciones
                   Alert.alert(
                     option.title,
                     'Función en desarrollo'
@@ -881,9 +729,45 @@ export const GateControl: React.FC<GateControlProps> = ({
     )
   }
 
+  if (showAdminPaymentReport && isAdmin) {
+    return (
+      <AdminPaymentReportScreen
+        apiUrl={apiUrl}
+        authToken={authToken}
+        onBack={() => setShowAdminPaymentReport(false)}
+      />
+    )
+  }
+
+  if (showAdminPanel && isAdmin) {
+    return (
+      <AdminPanelScreen
+        onBack={() => setShowAdminPanel(false)}
+        onOpenAccessLog={() => {
+          setShowAdminPanel(false)
+          setShowAccessHistory(true)
+        }}
+        onOpenPaymentReport={() => {
+          setShowAdminPanel(false)
+          setShowAdminPaymentReport(true)
+        }}
+      />
+    )
+  }
+
   if (showSupport) {
     return (
       <SupportScreen onBack={() => setShowSupport(false)} />
+    )
+  }
+
+  if (showPaymentStatus) {
+    return (
+      <PaymentStatusScreen
+        paymentStatus={paymentStatus}
+        onBack={() => setShowPaymentStatus(false)}
+        onNavigateToPayment={onNavigateToPayment}
+      />
     )
   }
 
@@ -900,10 +784,12 @@ export const GateControl: React.FC<GateControlProps> = ({
             opacity={0}
           />
           <XStack
+            
             justifyContent='space-between'
             alignItems='center'
             padding='$4'
             paddingTop='$8'
+            paddingBottom='$7'
             backgroundColor='transparent'
             borderBottomWidth={1}
             borderBottomColor='rgba(255,255,255,0.10)'
@@ -994,7 +880,7 @@ export const GateControl: React.FC<GateControlProps> = ({
             >
               {/* Pantalla 0: Estado de Pago */}
               <View style={{ width: screenWidth, flex: 1 }}>
-                <PaymentStatusScreen />
+                <MenuOptionsList />
               </View>
 
                 {/* Pantalla 1: Control de Portones (Principal) */}

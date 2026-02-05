@@ -25,12 +25,17 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 -- ==========================================
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT,
   role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'revoked')),
   colonia_id UUID,
   house_id UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Add email column if it doesn't exist
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email TEXT;
 
 -- Add house_id column if it doesn't exist
 ALTER TABLE profiles
@@ -99,6 +104,7 @@ CREATE TRIGGER profiles_set_updated_at
 -- Add comments
 COMMENT ON TABLE profiles IS 'User profiles with roles and house info';
 COMMENT ON COLUMN profiles.id IS 'References auth.users(id)';
+COMMENT ON COLUMN profiles.email IS 'Email address from auth.users';
 COMMENT ON COLUMN profiles.role IS 'User role: user, admin, or revoked';
 COMMENT ON COLUMN profiles.house_id IS 'References houses table';
 COMMENT ON COLUMN profiles.colonia_id IS 'References colonias table';
@@ -611,8 +617,8 @@ COMMENT ON TABLE support_messages IS 'Support messages from users';
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, role, created_at, updated_at)
-  VALUES (new.id, 'user', NOW(), NOW());
+  INSERT INTO public.profiles (id, email, role, created_at, updated_at)
+  VALUES (new.id, new.email, 'user', NOW(), NOW());
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
