@@ -2431,22 +2431,20 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
 
     if (!user) {
       fastify.log.warn('DELETE /marketplace/items/:id - No user found in request')
-      reply.status(401).send({
+      return reply.status(401).send({
         error: 'Unauthorized',
         message: 'Usuario no autenticado'
       })
-      return
     }
 
     const itemId = parseInt(id, 10)
 
     if (isNaN(itemId)) {
       fastify.log.warn({ id }, 'DELETE /marketplace/items/:id - Invalid item ID')
-      reply.status(400).send({
+      return reply.status(400).send({
         error: 'Bad Request',
         message: 'ID inválido'
       })
-      return
     }
 
     fastify.log.info({ userId: user.id, itemId }, 'DELETE request received for marketplace item')
@@ -2458,32 +2456,21 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
       .eq('id', itemId)
       .single()
 
-    if (fetchError) {
+    if (fetchError || !existingItem) {
       fastify.log.warn({ fetchError, itemId }, 'Item not found for deletion')
-      reply.status(404).send({
+      return reply.status(404).send({
         error: 'Not Found',
         message: 'Artículo no encontrado'
       })
-      return
-    }
-
-    if (!existingItem) {
-      fastify.log.warn({ itemId }, 'Item is null after fetch')
-      reply.status(404).send({
-        error: 'Not Found',
-        message: 'Artículo no encontrado'
-      })
-      return
     }
 
     // Check if user is the owner
     if (existingItem.seller_id !== user.id) {
       fastify.log.warn({ userId: user.id, sellerId: existingItem.seller_id }, 'User not authorized to delete item')
-      reply.status(403).send({
+      return reply.status(403).send({
         error: 'Forbidden',
         message: 'No tienes permiso para eliminar este artículo'
       })
-      return
     }
 
     // Delete item
@@ -2494,15 +2481,14 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
 
     if (deleteError) {
       fastify.log.error({ deleteError }, 'Error deleting marketplace item')
-      reply.status(500).send({
+      return reply.status(500).send({
         error: 'Database Error',
         message: 'Error al eliminar el artículo'
       })
-      return
     }
 
     fastify.log.info({ itemId }, 'Item deleted successfully')
-    reply.status(204).send()
+    return reply.status(204).send()
   } catch (error) {
     fastify.log.error({ error }, 'Error in /marketplace/items/:id DELETE')
     reply.status(500).send({
