@@ -126,8 +126,8 @@ const deleteItem = async (
   authToken: string,
   id: number
 ): Promise<void> => {
-  const response = await fetch(`${apiUrl}/marketplace/items/${id}`, {
-    method: 'DELETE',
+  const response = await fetch(`${apiUrl}/marketplace/items/${id}/delete`, {
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${authToken}`,
       'Content-Type': 'application/json'
