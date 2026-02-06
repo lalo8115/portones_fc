@@ -43,7 +43,8 @@ fastify.addHook('preHandler', async (request, reply) => {
     '/payment/tokenize'
   ]
   
-  if (publicRoutes.includes(request.url)) {
+  // Skip auth for OPTIONS requests (CORS preflight)
+  if (request.method === 'OPTIONS' || publicRoutes.includes(request.url)) {
     return
   }
 
@@ -2415,6 +2416,11 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
       message: 'Error al actualizar el artículo'
     })
   }
+})
+
+// Add explicit OPTIONS handler for marketplace items
+fastify.options('/marketplace/items/:id', async (request, reply) => {
+  reply.status(200).send()
 })
 
 // Delete marketplace item
