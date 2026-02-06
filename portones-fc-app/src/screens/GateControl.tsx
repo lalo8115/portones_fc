@@ -250,6 +250,9 @@ export const GateControl: React.FC<GateControlProps> = ({
   authToken,
   onNavigateToPayment
 }) => {
+  console.log('🔑 authToken en GateControl:', authToken ? `${authToken.substring(0, 20)}...` : 'UNDEFINED')
+  console.log('🌐 apiUrl en GateControl:', apiUrl)
+  
   const { signOut, user, profile } = useAuth()
   const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [showCommunityForum, setShowCommunityForum] = useState(false)

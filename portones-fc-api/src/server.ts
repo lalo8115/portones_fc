@@ -8,7 +8,7 @@ import { getAllGatesStatus } from './state/gates'
 // Initialize Fastify
 const fastify = Fastify({
   logger: {
-    level: 'error'
+    level: 'info'
   }
 })
 
@@ -138,11 +138,14 @@ fastify.get('/gates', async (request, reply) => {
 
     // Get all gates status with colonia info
     const allGatesStatus = getAllGatesStatus()
+    fastify.log.info({ allGatesStatus, userProfile }, '🔍 Gates and user data')
 
     // Get gates info from database with colonia
     const { data: gatesDb, error: gatesError } = await supabaseAdmin
       .from('gates')
       .select('id, name, enabled, type, colonia_id, colonias(id, nombre)')
+
+    fastify.log.info({ gatesDb, gatesError }, '🔍 Database gates query result')
 
     if (gatesError) {
       fastify.log.error({ error: gatesError }, 'Error fetching gates')
