@@ -2111,6 +2111,7 @@ fastify.get('/marketplace/items', async (request, reply) => {
         contact_info: item.contact_info,
         image_url: item.image_url,
         created_at: item.created_at,
+        seller_id: item.seller_id,
         seller_name: seller?.email?.split('@')[0] || 'Usuario',
         seller_unit: seller?.house_address || undefined
       }
@@ -2253,6 +2254,7 @@ fastify.post('/marketplace/items', async (request, reply) => {
       category: newItem.category,
       contact_info: newItem.contact_info,
       created_at: newItem.created_at,
+      seller_id: user.id,
       seller_name: sellerName,
       seller_unit: sellerUnit
     })
@@ -2261,6 +2263,177 @@ fastify.post('/marketplace/items', async (request, reply) => {
     reply.status(500).send({
       error: 'Server Error',
       message: 'Error al crear el artículo'
+    })
+  }
+})
+
+// Update marketplace item
+fastify.patch('/marketplace/items/:id', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { id } = request.params as { id: string }
+    const { title, description, price, category, contact_info } = request.body as {
+      title?: string
+      description?: string
+      price?: number
+      category?: string
+      contact_info?: string
+    }
+
+    // Get existing item to check ownership
+    const { data: existingItem, error: fetchError } = await supabaseAdmin
+      .from('marketplace_items')
+      .select('seller_id')
+      .eq('id', id)
+      .single()
+
+    if (fetchError || !existingItem) {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Artículo no encontrado'
+      })
+      return
+    }
+
+    // Check if user is the owner
+    if (existingItem.seller_id !== user.id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'No tienes permiso para editar este artículo'
+      })
+      return
+    }
+
+    // Build update object
+    const updateData: any = { updated_at: new Date().toISOString() }
+    
+    if (title !== undefined) {
+      if (!title.trim()) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'El título no puede estar vacío'
+        })
+        return
+      }
+      updateData.title = title.trim()
+    }
+
+    if (description !== undefined) {
+      if (!description.trim()) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'La descripción no puede estar vacía'
+        })
+        return
+      }
+      updateData.description = description.trim()
+    }
+
+    if (price !== undefined) {
+      if (typeof price !== 'number' || price < 0) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'El precio debe ser un número válido'
+        })
+        return
+      }
+      updateData.price = price
+    }
+
+    if (category !== undefined) {
+      const validCategories = ['electronics', 'furniture', 'vehicles', 'clothing', 'home', 'services', 'other']
+      if (!validCategories.includes(category)) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'Categoría inválida'
+        })
+        return
+      }
+      updateData.category = category
+    }
+
+    if (contact_info !== undefined) {
+      updateData.contact_info = contact_info?.trim() || null
+    }
+
+    // Update item
+    const { data: updatedItem, error: updateError } = await supabaseAdmin
+      .from('marketplace_items')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (updateError || !updatedItem) {
+      fastify.log.error({ updateError }, 'Error updating marketplace item')
+      reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al actualizar el artículo'
+      })
+      return
+    }
+
+    reply.send(updatedItem)
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items/:id PATCH')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al actualizar el artículo'
+    })
+  }
+})
+
+// Delete marketplace item
+fastify.delete('/marketplace/items/:id', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { id } = request.params as { id: string }
+
+    // Get existing item to check ownership
+    const { data: existingItem, error: fetchError } = await supabaseAdmin
+      .from('marketplace_items')
+      .select('seller_id')
+      .eq('id', id)
+      .single()
+
+    if (fetchError || !existingItem) {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Artículo no encontrado'
+      })
+      return
+    }
+
+    // Check if user is the owner
+    if (existingItem.seller_id !== user.id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'No tienes permiso para eliminar este artículo'
+      })
+      return
+    }
+
+    // Delete item
+    const { error: deleteError } = await supabaseAdmin
+      .from('marketplace_items')
+      .delete()
+      .eq('id', id)
+
+    if (deleteError) {
+      fastify.log.error({ deleteError }, 'Error deleting marketplace item')
+      reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al eliminar el artículo'
+      })
+      return
+    }
+
+    reply.status(204).send()
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items/:id DELETE')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al eliminar el artículo'
     })
   }
 })
