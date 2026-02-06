@@ -269,12 +269,13 @@ END $$;
 -- ==========================================
 CREATE TABLE IF NOT EXISTS access_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,  -- Nullable for visitor QR access
   action TEXT NOT NULL CHECK (action IN ('OPEN_GATE', 'CLOSE_GATE')),
   status TEXT NOT NULL CHECK (status IN ('SUCCESS', 'DENIED_REVOKED', 'DENIED_NO_ACCESS')),
   method TEXT DEFAULT 'APP' CHECK (method IN ('APP', 'QR', 'MANUAL', 'AUTOMATIC')),
   gate_id SMALLINT,
   ip_address TEXT,
+  metadata JSONB,  -- Additional info for QR access (visitor name, house_id, etc.)
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -283,6 +284,11 @@ ALTER TABLE access_logs
   ADD COLUMN IF NOT EXISTS method TEXT DEFAULT 'APP';
 ALTER TABLE access_logs
   ADD COLUMN IF NOT EXISTS gate_id SMALLINT;
+ALTER TABLE access_logs
+  ADD COLUMN IF NOT EXISTS metadata JSONB;
+-- Make user_id nullable for visitor QR access
+ALTER TABLE access_logs
+  ALTER COLUMN user_id DROP NOT NULL;
 
 -- Ensure RLS is enabled
 ALTER TABLE access_logs ENABLE ROW LEVEL SECURITY;
@@ -293,10 +299,19 @@ DROP POLICY IF EXISTS "Admins can view all logs" ON access_logs;
 DROP POLICY IF EXISTS "Service role can insert logs" ON access_logs;
 DROP POLICY IF EXISTS "Service role full access logs" ON access_logs;
 
--- Users can view their own logs
+-- Users can view their own logs AND QR visitor logs from their house
 CREATE POLICY "Users can view own logs"
   ON access_logs FOR SELECT
-  USING (auth.uid() = user_id);
+  USING (
+    auth.uid() = user_id 
+    OR 
+    (
+      method = 'QR' 
+      AND metadata->>'house_id' IN (
+        SELECT house_id::text FROM profiles WHERE id = auth.uid() AND house_id IS NOT NULL
+      )
+    )
+  );
 
 -- Admins can view all logs
 CREATE POLICY "Admins can view all logs"
@@ -323,6 +338,8 @@ COMMENT ON TABLE access_logs IS 'Audit log for gate access attempts';
 COMMENT ON COLUMN access_logs.action IS 'OPEN_GATE or CLOSE_GATE';
 COMMENT ON COLUMN access_logs.status IS 'SUCCESS, DENIED_REVOKED, or DENIED_NO_ACCESS';
 COMMENT ON COLUMN access_logs.method IS 'Access method: APP, QR, MANUAL, or AUTOMATIC';
+COMMENT ON COLUMN access_logs.user_id IS 'User who accessed (null for visitor QR access)';
+COMMENT ON COLUMN access_logs.metadata IS 'Additional info: visitor_name, qr_code, house_id, etc. (for QR access)';
 
 -- ==========================================
 -- 8. CREATE GATES TABLE
@@ -544,8 +561,104 @@ CREATE INDEX IF NOT EXISTS idx_forum_posts_category ON forum_posts(category);
 CREATE INDEX IF NOT EXISTS idx_forum_posts_created_at ON forum_posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_forum_posts_author_id ON forum_posts(author_id);
 
+-- ==========================================
+-- 10. CREATE VISITOR_QR TABLE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS visitor_qr (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  short_code INTEGER NOT NULL UNIQUE,
+  house_id UUID REFERENCES houses(id) ON DELETE CASCADE,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  max_uses SMALLINT NOT NULL DEFAULT 2 CHECK (max_uses BETWEEN 2 AND 1000 AND max_uses % 2 = 0),
+  uses SMALLINT NOT NULL DEFAULT 0 CHECK (uses >= 0 AND uses <= 1000),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
+  rubro TEXT CHECK (rubro IN ('delivery_app', 'family', 'friend', 'parcel', 'service', 'temporal')),
+  invitado TEXT,
+  url_ine TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Drop old constraints if they exist
+DO $$
+BEGIN
+  ALTER TABLE visitor_qr DROP CONSTRAINT IF EXISTS visitor_qr_max_uses_check;
+  ALTER TABLE visitor_qr DROP CONSTRAINT IF EXISTS visitor_qr_uses_check;
+  ALTER TABLE visitor_qr DROP CONSTRAINT IF EXISTS visitor_qr_rubro_check;
+EXCEPTION
+  WHEN undefined_object THEN NULL;
+END $$;
+
+-- Add new constraints
+ALTER TABLE visitor_qr
+  ADD CONSTRAINT visitor_qr_max_uses_check 
+  CHECK (max_uses BETWEEN 2 AND 1000 AND max_uses % 2 = 0);
+
+ALTER TABLE visitor_qr
+  ADD CONSTRAINT visitor_qr_uses_check 
+  CHECK (uses >= 0 AND uses <= max_uses);
+
+ALTER TABLE visitor_qr
+  ADD CONSTRAINT visitor_qr_rubro_check 
+  CHECK (rubro IN ('delivery_app', 'family', 'friend', 'parcel', 'service', 'temporal'));
+
+-- Ensure RLS is enabled
+ALTER TABLE visitor_qr ENABLE ROW LEVEL SECURITY;
+
+-- Drop old policies
+DROP POLICY IF EXISTS "Users can view QR codes for their house" ON visitor_qr;
+DROP POLICY IF EXISTS "Users can create QR codes for their house" ON visitor_qr;
+DROP POLICY IF EXISTS "Users can update their own QR codes" ON visitor_qr;
+DROP POLICY IF EXISTS "Admins can view all QR codes" ON visitor_qr;
+DROP POLICY IF EXISTS "Service role full access visitor_qr" ON visitor_qr;
+
+-- Users can view QR codes for their house
+CREATE POLICY "Users can view QR codes for their house"
+  ON visitor_qr FOR SELECT
+  USING (house_id IN (SELECT house_id FROM profiles WHERE id = auth.uid()));
+
+-- Users can create QR codes for their house
+CREATE POLICY "Users can create QR codes for their house"
+  ON visitor_qr FOR INSERT
+  WITH CHECK (house_id IN (SELECT house_id FROM profiles WHERE id = auth.uid()));
+
+-- Users can update their own QR codes (e.g., revoke them)
+CREATE POLICY "Users can update their own QR codes"
+  ON visitor_qr FOR UPDATE
+  USING (house_id IN (SELECT house_id FROM profiles WHERE id = auth.uid()));
+
+-- Admins can view all QR codes
+CREATE POLICY "Admins can view all QR codes"
+  ON visitor_qr FOR SELECT
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin'));
+
+-- Service role (backend) can do everything
+CREATE POLICY "Service role full access visitor_qr"
+  ON visitor_qr FOR ALL
+  USING (auth.role() = 'service_role');
+
+-- Drop old trigger and recreate
+DROP TRIGGER IF EXISTS visitor_qr_set_updated_at ON visitor_qr;
+CREATE TRIGGER visitor_qr_set_updated_at
+  BEFORE UPDATE ON visitor_qr
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_visitor_qr_short_code ON visitor_qr(short_code);
+CREATE INDEX IF NOT EXISTS idx_visitor_qr_house_id ON visitor_qr(house_id);
+CREATE INDEX IF NOT EXISTS idx_visitor_qr_status ON visitor_qr(status);
+CREATE INDEX IF NOT EXISTS idx_visitor_qr_expires_at ON visitor_qr(expires_at);
+
 -- Add comments
-COMMENT ON TABLE forum_posts IS 'Community forum posts for colonias';
+COMMENT ON TABLE visitor_qr IS 'QR codes for visitor access with entry/exit tracking';
+COMMENT ON COLUMN visitor_qr.short_code IS 'Unique numeric code for the QR';
+COMMENT ON COLUMN visitor_qr.house_id IS 'House associated with this QR code';
+COMMENT ON COLUMN visitor_qr.status IS 'active, revoked, or expired';
+COMMENT ON COLUMN visitor_qr.max_uses IS 'Maximum uses (always even: 1 visit = 2 uses for entry+exit)';
+COMMENT ON COLUMN visitor_qr.uses IS 'Current uses count. Even = visitor outside, Odd = visitor inside';
+COMMENT ON COLUMN visitor_qr.rubro IS 'QR policy: delivery_app (2h,1v), family (1y,500v), friend (24h,3v), parcel (30m,1v), service (4h,2v), temporal (24h,2v)';
+COMMENT ON COLUMN visitor_qr.invitado IS 'Visitor full name';
+COMMENT ON COLUMN visitor_qr.url_ine IS 'URL to uploaded ID photo (required for family policy)';
 
 -- ==========================================
 -- 11. CREATE SUPPORT_MESSAGES TABLE

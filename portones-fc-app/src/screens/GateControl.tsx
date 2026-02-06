@@ -10,6 +10,7 @@ import { AnimatedBackground } from '../components/AnimatedBackground'
 import { AccessHistoryScreen } from './AccessHistoryScreen'
 import { CommunityForumScreen } from './CommunityForumScreen'
 import { SupportScreen } from './SupportScreen'
+import { QRManagementScreen } from './QRManagementScreen'
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -257,6 +258,8 @@ export const GateControl: React.FC<GateControlProps> = ({
   const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [showCommunityForum, setShowCommunityForum] = useState(false)
   const [showSupport, setShowSupport] = useState(false)
+  const [showQRManagement, setShowQRManagement] = useState(false)
+  const [showQRScanner, setShowQRScanner] = useState(false)
   const [qrValue, setQrValue] = useState<string | null>(null)
   const [qrExpiresAt, setQrExpiresAt] = useState<Date | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -793,72 +796,606 @@ export const GateControl: React.FC<GateControlProps> = ({
     )
   }
 
-  // Componente para pantalla de QR y escaneo
-  const QRScreen = () => (
-    <YStack padding='$4' space='$4'>
-      <YStack space='$2'>
-        <Text fontSize='$6' fontWeight='bold'>
-          Códigos QR de Acceso
-        </Text>
-        <Text fontSize='$3' color='$gray11'>
-          Comparte para dar acceso a visitantes
-        </Text>
-      </YStack>
+  // Componente para escanear QR de visitantes
+  const QRScannerScreen = () => {
+    const [permission, requestPermission] = useCameraPermissions()
+    const [isProcessing, setIsProcessing] = useState(false)
+    const [resultMessage, setResultMessage] = useState<string | null>(null)
+    const [showResultDialog, setShowResultDialog] = useState(false)
 
-      {qrValue && (
-        <Card elevate size='$4' bordered padding='$4' space='$3'>
-          <YStack space='$3' alignItems='center'>
-            <Text fontSize='$5' fontWeight='bold'>
-              QR temporal de acceso
+    if (!permission) {
+      return (
+        <YStack flex={1} justifyContent='center' alignItems='center' padding='$4'>
+          <Spinner size='large' />
+          <Text marginTop='$4'>Cargando cámara...</Text>
+        </YStack>
+      )
+    }
+
+    if (!permission.granted) {
+      return (
+        <YStack flex={1} justifyContent='center' alignItems='center' padding='$4' space='$4'>
+          <Text fontSize='$6' fontWeight='bold' textAlign='center'>
+            Permisos de Cámara
+          </Text>
+          <Text fontSize='$3' color='$gray11' textAlign='center'>
+            Necesitamos acceso a la cámara para escanear códigos QR de visitantes
+          </Text>
+          <Button size='$4' onPress={requestPermission}>
+            <Text fontWeight='600'>Permitir Acceso a Cámara</Text>
+          </Button>
+          <Button size='$3' theme='gray' onPress={() => setShowQRScanner(false)}>
+            <Text>Cancelar</Text>
+          </Button>
+        </YStack>
+      )
+    }
+
+    const handleBarCodeScanned = async ({ data }: { data: string }) => {
+      if (isProcessing) return
+
+      setIsProcessing(true)
+
+      try {
+        // Parse QR data
+        let qrData
+        try {
+          qrData = JSON.parse(data)
+        } catch {
+          qrData = { code: data }
+        }
+
+        const shortCode = qrData.code || data
+        
+        // Llamar directamente sin seleccionar portón
+        await openGateWithQR(shortCode)
+      } catch (error) {
+        setResultMessage('❌ Código QR inválido')
+        setShowResultDialog(true)
+        setIsProcessing(false)
+      }
+    }
+
+    const openGateWithQR = async (shortCode: string) => {
+      try {
+        const response = await fetch(`${apiUrl}/gate/open-with-qr`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ shortCode })
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Error al abrir portón')
+        }
+
+        setResultMessage(
+          `✅ Portón Abierto\n\n${data.gateName || 'Portón'}\n${data.visitor?.name || 'Visitante'}\n${data.visitor?.action || ''}\n\nEstado: ${data.visitor?.status === 'inside' ? 'Dentro' : 'Fuera'}\nVisitas restantes: ${data.visitor?.remainingVisits}`
+        )
+        setShowResultDialog(true)
+      } catch (error) {
+        setResultMessage(
+          `❌ Error\n\n${error instanceof Error ? error.message : 'No se pudo abrir el portón'}`
+        )
+        setShowResultDialog(true)
+      }
+    }
+
+    const handleResultDialogClose = () => {
+      setShowResultDialog(false)
+      setResultMessage(null)
+      setIsProcessing(false)
+      setShowQRScanner(false)
+    }
+
+    return (
+      <YStack flex={1} backgroundColor='$background'>
+        {/* Header */}
+        <XStack
+          justifyContent='space-between'
+          alignItems='center'
+          padding='$4'
+          paddingTop='$8'
+          backgroundColor='$background'
+          borderBottomWidth={1}
+          borderBottomColor='$gray5'
+        >
+          <YStack flex={1}>
+            <Text fontSize='$6' fontWeight='bold'>
+              Escanear QR de Visitante
             </Text>
-            <QRCode
-              value={qrValue}
-              size={260}
-              color='#000000'
-              backgroundColor='#ffffff'
-              quietZone={16}
-              ecl='H'
-            />
-            {qrValue && (
-              <Text fontSize='$4' fontWeight='600'>
-                Código: {(() => {
-                  try {
-                    const parsed = JSON.parse(qrValue)
-                    return parsed?.c ?? 'N/A'
-                  } catch {
-                    return 'N/A'
-                  }
-                })()}
-              </Text>
-            )}
             <Text fontSize='$3' color='$gray11'>
-              Comparte este código para acceso rápido. Vence a las {qrExpiresAt ? formatExpiry(qrExpiresAt) : 'N/A'}.
+              Apunta la cámara al código QR
             </Text>
           </YStack>
-        </Card>
-      )}
+          <Button
+            size='$3'
+            chromeless
+            onPress={() => setShowQRScanner(false)}
+          >
+            <Text fontSize='$4'>✕</Text>
+          </Button>
+        </XStack>
 
-      <Button
-        width='100%'
-        size='$4'
-        theme='blue'
-        onPress={handleGenerateQr}
-      >
-        Generar Nuevo QR
-      </Button>
+        {/* Camera View */}
+        <YStack flex={1} position='relative'>
+          <CameraView
+            style={{ flex: 1 }}
+            facing='back'
+            onBarcodeScanned={isProcessing ? undefined : handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr']
+            }}
+          />
 
-      {__DEV__ && (
-        <Button
-          width='100%'
-          size='$4'
-          theme='purple'
-          onPress={handleStartScanDev}
-        >
-          Escanear QR → Abrir Visitante Entrada
-        </Button>
-      )}
-    </YStack>
-  )
+          {/* Overlay con guía de escaneo */}
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          >
+            <View
+              style={{
+                width: 250,
+                height: 250,
+                borderWidth: 2,
+                borderColor: 'rgba(255, 255, 255, 0.5)',
+                borderRadius: 16,
+                backgroundColor: 'transparent'
+              }}
+            />
+          </View>
+
+          {isProcessing && (
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: 'rgba(0, 0, 0, 0.7)'
+              }}
+            >
+              <Spinner size='large' color='white' />
+              <Text color='white' marginTop='$4'>
+                Procesando...
+              </Text>
+            </View>
+          )}
+        </YStack>
+
+        {/* Diálogo de resultado */}
+        {showResultDialog && (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              justifyContent: 'center',
+              alignItems: 'center',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)'
+            }}
+          >
+            <Card
+              elevate
+              size='$4'
+              bordered
+              padding='$4'
+              space='$3'
+              width={300}
+              backgroundColor='$background'
+            >
+              <YStack space='$3'>
+                <Text fontSize='$4' textAlign='center' style={{ whiteSpace: 'pre-line' }}>
+                  {resultMessage}
+                </Text>
+                
+                <Button
+                  size='$4'
+                  onPress={handleResultDialogClose}
+                >
+                  <Text fontWeight='600'>OK</Text>
+                </Button>
+              </YStack>
+            </Card>
+          </View>
+        )}
+
+        {/* Footer con instrucciones */}
+        <YStack padding='$4' backgroundColor='$background' space='$2'>
+          <Text fontSize='$3' textAlign='center' color='$gray11'>
+            Coloca el código QR dentro del marco
+          </Text>
+          <Text fontSize='$2' textAlign='center' color='$gray10'>
+            El escaneo es automático
+          </Text>
+        </YStack>
+      </YStack>
+    )
+  }
+
+  // Componente para pantalla de QR y escaneo
+  const QRScreen = () => {
+    const [selectedPolicy, setSelectedPolicy] = useState<string | null>(null)
+    const [visitorName, setVisitorName] = useState('')
+    const [idPhotoUrl, setIdPhotoUrl] = useState<string | null>(null)
+    const [generatedQR, setGeneratedQR] = useState<any>(null)
+    const [isGenerating, setIsGenerating] = useState(false)
+
+    // Políticas de QR
+    const qrPolicies = [
+      {
+        id: 'delivery_app',
+        title: 'Repartidor App',
+        description: 'Uber Eats, Rappi, DiDi Food',
+        icon: '🛵',
+        color: '$orange10',
+        duration: '2 horas',
+        visits: 1,
+        requiresId: false,
+        requiresName: true
+      },
+      {
+        id: 'family',
+        title: 'Familiar',
+        description: 'Acceso indefinido con ID',
+        icon: '👨‍👩‍👧‍👦',
+        color: '$green10',
+        duration: '1 año',
+        visits: 500,
+        requiresId: true,
+        requiresName: true
+      },
+      {
+        id: 'friend',
+        title: 'Amigo',
+        description: 'Visita social',
+        icon: '👥',
+        color: '$blue10',
+        duration: '24 horas',
+        visits: 3,
+        requiresId: false,
+        requiresName: true
+      },
+      {
+        id: 'parcel',
+        title: 'Paquetería',
+        description: 'DHL, FedEx, Estafeta',
+        icon: '📦',
+        color: '$purple10',
+        duration: '30 minutos',
+        visits: 1,
+        requiresId: false,
+        requiresName: true
+      },
+      {
+        id: 'service',
+        title: 'Servicio',
+        description: 'Plomero, electricista, etc.',
+        icon: '🔧',
+        color: '$yellow10',
+        duration: '4 horas',
+        visits: 2,
+        requiresId: false,
+        requiresName: true
+      }
+    ]
+
+    const handleGenerateQR = async () => {
+      if (!selectedPolicy) return
+
+      const policy = qrPolicies.find(p => p.id === selectedPolicy)
+      if (!policy) return
+
+      // Validar campos requeridos
+      if (policy.requiresName && !visitorName.trim()) {
+        Alert.alert('Campo requerido', 'Por favor ingresa el nombre del visitante')
+        return
+      }
+
+      if (policy.requiresId && !idPhotoUrl) {
+        Alert.alert('ID requerido', 'Por favor carga una foto de la identificación')
+        return
+      }
+
+      setIsGenerating(true)
+
+      try {
+        const response = await fetch(`${apiUrl}/qr/generate`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            policyType: selectedPolicy,
+            visitorName: visitorName.trim() || null,
+            idPhotoUrl: idPhotoUrl || null
+          })
+        })
+
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.message || 'Error al generar QR')
+        }
+
+        const data = await response.json()
+        setGeneratedQR(data.qrCode)
+
+        // Limpiar formulario
+        setVisitorName('')
+        setIdPhotoUrl(null)
+      } catch (error) {
+        Alert.alert('Error', error instanceof Error ? error.message : 'No se pudo generar el QR')
+      } finally {
+        setIsGenerating(false)
+      }
+    }
+
+    // Vista de selección de política
+    if (!selectedPolicy) {
+      return (
+        <ScrollView>
+          <YStack padding='$4' space='$4'>
+            <YStack space='$2'>
+              <Text fontSize='$7' fontWeight='bold'>
+                Generar QR de Acceso
+              </Text>
+              <Text fontSize='$3' color='$gray11'>
+                Selecciona el tipo de visitante
+              </Text>
+            </YStack>
+
+            <XStack flexWrap='wrap' gap='$3' justifyContent='space-between'>
+              {qrPolicies.map((policy) => (
+                <Card
+                  key={policy.id}
+                  elevate
+                  size='$3'
+                  bordered
+                  padding='$3'
+                  width='48%'
+                  pressStyle={{ scale: 0.97, opacity: 0.8 }}
+                  onPress={() => setSelectedPolicy(policy.id)}
+                >
+                  <YStack space='$2' alignItems='center'>
+                    <Circle size={48} backgroundColor={policy.color} elevate>
+                      <Text fontSize='$6'>{policy.icon}</Text>
+                    </Circle>
+                    <YStack space='$1' alignItems='center'>
+                      <Text fontSize='$4' fontWeight='bold' textAlign='center'>
+                        {policy.title}
+                      </Text>
+                      <Text fontSize='$2' color='$gray11' textAlign='center' numberOfLines={2}>
+                        {policy.description}
+                      </Text>
+                      <XStack space='$1' marginTop='$1' flexWrap='wrap' justifyContent='center'>
+                        <Card size='$1' backgroundColor='$gray3' paddingHorizontal='$2' paddingVertical='$1'>
+                          <Text fontSize='$1' fontWeight='600'>{policy.duration}</Text>
+                        </Card>
+                        <Card size='$1' backgroundColor='$gray3' paddingHorizontal='$2' paddingVertical='$1'>
+                          <Text fontSize='$1' fontWeight='600'>{policy.visits} {policy.visits === 1 ? 'visita' : 'visitas'}</Text>
+                        </Card>
+                      </XStack>
+                    </YStack>
+                  </YStack>
+                </Card>
+              ))}
+            </XStack>
+
+            {/* Botón para ver gestión de QRs */}
+            <Button
+              size='$4'
+              theme='gray'
+              onPress={() => setShowQRManagement(true)}
+            >
+              <Text fontWeight='600'>Ver Mis QRs Generados</Text>
+            </Button>
+
+            {/* Botón de escanear QR - Solo para desarrollo */}
+            {__DEV__ && (
+              <Button
+                size='$4'
+                theme='blue'
+                onPress={() => setShowQRScanner(true)}
+              >
+                <Text fontWeight='600'>📷 Escanear QR (Dev)</Text>
+              </Button>
+            )}
+          </YStack>
+        </ScrollView>
+      )
+    }
+
+    const policy = qrPolicies.find(p => p.id === selectedPolicy)!
+
+    // Vista del formulario y QR generado
+    return (
+      <ScrollView>
+        <YStack padding='$4' space='$4'>
+          <XStack alignItems='center' space='$2'>
+            <Button
+              size='$3'
+              chromeless
+              icon={<Text fontSize='$5'>←</Text>}
+              onPress={() => {
+                setSelectedPolicy(null)
+                setGeneratedQR(null)
+                setVisitorName('')
+                setIdPhotoUrl(null)
+              }}
+            />
+            <YStack flex={1}>
+              <Text fontSize='$6' fontWeight='bold'>
+                {policy.title}
+              </Text>
+              <Text fontSize='$3' color='$gray11'>
+                {policy.description}
+              </Text>
+            </YStack>
+          </XStack>
+
+          {/* QR Generado */}
+          {generatedQR && (
+            <Card elevate size='$4' bordered padding='$4' space='$3' backgroundColor='$green2'>
+              <YStack space='$3' alignItems='center'>
+                <Circle size={60} backgroundColor={policy.color} elevate>
+                  <Text fontSize='$8'>{policy.icon}</Text>
+                </Circle>
+                <Text fontSize='$5' fontWeight='bold' color='$green11'>
+                  ¡QR Generado!
+                </Text>
+                <QRCode
+                  value={JSON.stringify({ code: generatedQR.shortCode })}
+                  size={240}
+                  color='#000000'
+                  backgroundColor='#ffffff'
+                  quietZone={16}
+                  ecl='H'
+                />
+                <Card size='$3' backgroundColor='white' paddingHorizontal='$4' paddingVertical='$2'>
+                  <Text fontSize='$7' fontWeight='bold' letterSpacing={2}>
+                    {generatedQR.shortCode}
+                  </Text>
+                </Card>
+                {generatedQR.visitorName && (
+                  <Text fontSize='$4' fontWeight='600'>
+                    {generatedQR.visitorName}
+                  </Text>
+                )}
+                <Text fontSize='$3' color='$gray11' textAlign='center'>
+                  Válido hasta: {new Date(generatedQR.expiresAt).toLocaleString('es-MX')}
+                </Text>
+                <Text fontSize='$3' color='$gray11'>
+                  {Math.floor(generatedQR.maxUses / 2)} {Math.floor(generatedQR.maxUses / 2) === 1 ? 'visita disponible' : 'visitas disponibles'}
+                </Text>
+              </YStack>
+            </Card>
+          )}
+
+          {/* Formulario */}
+          {!generatedQR && (
+            <Card elevate size='$4' bordered padding='$4' space='$3'>
+              <YStack space='$3'>
+                <YStack space='$2'>
+                  <Text fontSize='$4' fontWeight='600'>
+                    Información del Visitante
+                  </Text>
+                  <Text fontSize='$2' color='$gray11'>
+                    Completa los datos requeridos
+                  </Text>
+                </YStack>
+
+                {policy.requiresName && (
+                  <YStack space='$2'>
+                    <Text fontSize='$3' fontWeight='600'>
+                      Nombre <Text color='$red10'>*</Text>
+                    </Text>
+                    <Card bordered padding='$3'>
+                      <input
+                        type="text"
+                        value={visitorName}
+                        onChange={(e: any) => setVisitorName(e.target.value)}
+                        placeholder="Nombre completo del visitante"
+                        style={{
+                          fontSize: '16px',
+                          border: 'none',
+                          outline: 'none',
+                          width: '100%',
+                          backgroundColor: 'transparent',
+                          color: 'white'
+                        }}
+                      />
+                    </Card>
+                  </YStack>
+                )}
+
+                {policy.requiresId && (
+                  <YStack space='$2'>
+                    <Text fontSize='$3' fontWeight='600'>
+                      Identificación <Text color='$red10'>*</Text>
+                    </Text>
+                    <Button
+                      size='$3'
+                      theme='gray'
+                      onPress={() => {
+                        Alert.alert('Función en desarrollo', 'La carga de ID estará disponible próximamente')
+                      }}
+                    >
+                      {idPhotoUrl ? '✓ ID Cargada' : 'Cargar Foto de ID'}
+                    </Button>
+                    <Text fontSize='$2' color='$gray10'>
+                      Foto de INE, Pasaporte o Licencia
+                    </Text>
+                  </YStack>
+                )}
+
+                <Card size='$2' backgroundColor='$gray2' padding='$3' space='$2'>
+                  <XStack justifyContent='space-between'>
+                    <Text fontSize='$2' color='$gray11'>Duración:</Text>
+                    <Text fontSize='$2' fontWeight='600'>{policy.duration}</Text>
+                  </XStack>
+                  <XStack justifyContent='space-between'>
+                    <Text fontSize='$2' color='$gray11'>Visitas:</Text>
+                    <Text fontSize='$2' fontWeight='600'>{policy.visits}</Text>
+                  </XStack>
+                  <XStack justifyContent='space-between'>
+                    <Text fontSize='$2' color='$gray11'>Sistema:</Text>
+                    <Text fontSize='$2' fontWeight='600'>Entrada + Salida</Text>
+                  </XStack>
+                </Card>
+              </YStack>
+            </Card>
+          )}
+
+          {/* Botones de acción */}
+          {!generatedQR && (
+            <Button
+              size='$4'
+              backgroundColor={policy.color}
+              onPress={handleGenerateQR}
+              disabled={isGenerating}
+            >
+              {isGenerating ? (
+                <Spinner size='small' color='white' />
+              ) : (
+                <Text color='white' fontWeight='700'>Generar QR</Text>
+              )}
+            </Button>
+          )}
+
+          {generatedQR && (
+            <Button
+              size='$4'
+              theme='blue'
+              onPress={() => {
+                setGeneratedQR(null)
+                setVisitorName('')
+                setIdPhotoUrl(null)
+              }}
+            >
+              Generar Otro QR
+            </Button>
+          )}
+        </YStack>
+      </ScrollView>
+    )
+  }
 
   if (showAccessHistory) {
     return (
@@ -887,6 +1424,20 @@ export const GateControl: React.FC<GateControlProps> = ({
   if (showSupport) {
     return (
       <SupportScreen onBack={() => setShowSupport(false)} />
+    )
+  }
+
+  if (showQRScanner) {
+    return <QRScannerScreen />
+  }
+
+  if (showQRManagement) {
+    return (
+      <QRManagementScreen
+        apiUrl={apiUrl}
+        authToken={authToken}
+        onBack={() => setShowQRManagement(false)}
+      />
     )
   }
 

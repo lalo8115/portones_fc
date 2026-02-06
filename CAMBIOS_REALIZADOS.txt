@@ -1,0 +1,19 @@
+import React, { useState, useRef } from 'react'
+import { ScrollView, View, Animated, PanResponder, Dimensions, Alert, Linking } from 'react-native'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Button, YStack, Text, Spinner, Circle, XStack, Card } from 'tamagui'
+import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, CreditCard, Home, MapPin} from '@tamagui/lucide-icons'
+import { useAuth } from '../contexts/AuthContext'
+import QRCode from 'react-native-qrcode-svg'
+import { CameraView, useCameraPermissions } from 'expo-camera'
+import { AnimatedBackground } from '../components/AnimatedBackground'
+import { AccessHistoryScreen } from './AccessHistoryScreen'
+import { CommunityForumScreen } from './CommunityForumScreen'
+import { SupportScreen } from './SupportScreen'
+import { QRManagementScreen } from './QRManagementScreen'
+
+// Cambios implementados:
+// 1. SELECT en /access/history ahora incluye qr_id
+// 2. Backend obtiene datos de visitor_qr con JOIN
+// 3. Records enriquecidos con accessor_name y accessor_type
+// 4. /gate/open-with-qr inserta qr_id en lugar de metadata
