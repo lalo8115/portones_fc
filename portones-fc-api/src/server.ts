@@ -2424,7 +2424,7 @@ fastify.options('/marketplace/items/:id', async (request, reply) => {
 })
 
 // Delete marketplace item
-fastify.post('/marketplace/items/:id/delete', async (request, reply) => {
+fastify.post<{ Params: { id: string } }>('/marketplace/items/:id/delete', async (request, reply) => {
   try {
     const user = (request as any).user
     const { id } = request.params as { id: string }
