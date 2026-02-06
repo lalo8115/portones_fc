@@ -2389,6 +2389,8 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
     const user = (request as any).user
     const { id } = request.params as { id: string }
 
+    fastify.log.info({ userId: user.id, itemId: id }, 'DELETE request received for marketplace item')
+
     // Get existing item to check ownership
     const { data: existingItem, error: fetchError } = await supabaseAdmin
       .from('marketplace_items')
@@ -2397,6 +2399,7 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
       .single()
 
     if (fetchError || !existingItem) {
+      fastify.log.warn({ fetchError, itemId: id }, 'Item not found for deletion')
       reply.status(404).send({
         error: 'Not Found',
         message: 'Artículo no encontrado'
@@ -2406,6 +2409,7 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
 
     // Check if user is the owner
     if (existingItem.seller_id !== user.id) {
+      fastify.log.warn({ userId: user.id, sellerId: existingItem.seller_id }, 'User not authorized to delete item')
       reply.status(403).send({
         error: 'Forbidden',
         message: 'No tienes permiso para eliminar este artículo'
@@ -2428,6 +2432,7 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
       return
     }
 
+    fastify.log.info({ itemId: id }, 'Item deleted successfully')
     reply.status(204).send()
   } catch (error) {
     fastify.log.error({ error }, 'Error in /marketplace/items/:id DELETE')

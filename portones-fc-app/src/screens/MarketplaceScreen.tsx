@@ -339,18 +339,25 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
   const handleDeleteItem = () => {
     if (!selectedItem) return
     
-    Alert.alert(
-      'Eliminar artículo',
-      '¿Estás seguro de que deseas eliminar este artículo?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Eliminar', 
-          style: 'destructive',
-          onPress: () => deleteItemMutation.mutate(selectedItem.id)
-        }
-      ]
-    )
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('¿Estás seguro de que deseas eliminar este artículo?')
+      if (confirmed) {
+        deleteItemMutation.mutate(selectedItem.id)
+      }
+    } else {
+      Alert.alert(
+        'Eliminar artículo',
+        '¿Estás seguro de que deseas eliminar este artículo?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { 
+            text: 'Eliminar', 
+            style: 'destructive',
+            onPress: () => deleteItemMutation.mutate(selectedItem.id)
+          }
+        ]
+      )
+    }
   }
 
   const handleCreateItem = async () => {
