@@ -2002,6 +2002,269 @@ fastify.post('/support/send', async (request, reply) => {
   }
 })
 
+// Marketplace endpoints
+// Get marketplace items by category
+fastify.get('/marketplace/items', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { category } = request.query as { category?: string }
+
+    // Get user profile to get colonia_id
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(404).send({
+        error: 'Profile Not Found',
+        message: 'Usuario no encontrado'
+      })
+      return
+    }
+
+    if (!profile.colonia_id) {
+      reply.status(400).send({
+        error: 'No Colonia',
+        message: 'Debes estar asignado a una colonia para ver el marketplace'
+      })
+      return
+    }
+
+    // Build query
+    let query = supabaseAdmin
+      .from('marketplace_items')
+      .select(`
+        id,
+        title,
+        description,
+        price,
+        category,
+        contact_info,
+        image_url,
+        created_at,
+        seller_id,
+        colonia_id
+      `)
+      .eq('colonia_id', profile.colonia_id)
+      .order('created_at', { ascending: false })
+
+    // Filter by category if provided
+    if (category && category !== 'all') {
+      query = query.eq('category', category)
+    }
+
+    const { data: items, error: itemsError } = await query
+
+    if (itemsError) {
+      fastify.log.error({ itemsError }, 'Error fetching marketplace items')
+      reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al obtener artículos'
+      })
+      return
+    }
+
+    // Get seller information for all items
+    const sellerIds = Array.from(new Set((items ?? []).map((item: any) => item.seller_id)))
+    
+    let sellersMap = new Map<string, { email: string; house_address?: string }>()
+
+    if (sellerIds.length > 0) {
+      // Get emails from auth.users
+      const { data: authUsers, error: authError } = await supabaseAdmin.auth.admin.listUsers()
+      
+      if (!authError && authUsers?.users) {
+        authUsers.users.forEach((u: any) => {
+          if (sellerIds.includes(u.id)) {
+            sellersMap.set(u.id, { email: u.email || 'Usuario' })
+          }
+        })
+      }
+
+      // Get house information from profiles
+      const { data: profiles, error: profilesError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, house_id, houses!fk_profiles_house(street, external_number)')
+        .in('id', sellerIds)
+
+      if (!profilesError && profiles) {
+        profiles.forEach((p: any) => {
+          const existing = sellersMap.get(p.id)
+          if (existing && p.houses) {
+            existing.house_address = `${p.houses.street} ${p.houses.external_number}`
+          }
+        })
+      }
+    }
+
+    // Format response with seller info
+    const formattedItems = (items ?? []).map((item: any) => {
+      const seller = sellersMap.get(item.seller_id)
+      return {
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        price: item.price,
+        category: item.category,
+        contact_info: item.contact_info,
+        image_url: item.image_url,
+        created_at: item.created_at,
+        seller_name: seller?.email?.split('@')[0] || 'Usuario',
+        seller_unit: seller?.house_address || undefined
+      }
+    })
+
+    reply.send(formattedItems)
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al obtener artículos del marketplace'
+    })
+  }
+})
+
+// Create new marketplace item
+fastify.post('/marketplace/items', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { title, description, price, category, contact_info } = request.body as {
+      title?: string
+      description?: string
+      price?: number
+      category?: string
+      contact_info?: string
+    }
+
+    // Validate inputs
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'El título es requerido'
+      })
+      return
+    }
+
+    if (!description || typeof description !== 'string' || !description.trim()) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'La descripción es requerida'
+      })
+      return
+    }
+
+    if (typeof price !== 'number' || price < 0) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'El precio debe ser un número válido'
+      })
+      return
+    }
+
+    if (!category || typeof category !== 'string') {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'La categoría es requerida'
+      })
+      return
+    }
+
+    const validCategories = ['electronics', 'furniture', 'vehicles', 'clothing', 'home', 'services', 'other']
+    if (!validCategories.includes(category)) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'Categoría inválida'
+      })
+      return
+    }
+
+    // Get user profile to get colonia_id
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(404).send({
+        error: 'Profile Not Found',
+        message: 'Usuario no encontrado'
+      })
+      return
+    }
+
+    if (!profile.colonia_id) {
+      reply.status(400).send({
+        error: 'No Colonia',
+        message: 'Debes estar asignado a una colonia para publicar en el marketplace'
+      })
+      return
+    }
+
+    // Create marketplace item
+    const { data: newItem, error: insertError } = await supabaseAdmin
+      .from('marketplace_items')
+      .insert({
+        title: title.trim(),
+        description: description.trim(),
+        price: price,
+        category: category,
+        contact_info: contact_info?.trim() || null,
+        seller_id: user.id,
+        colonia_id: profile.colonia_id,
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single()
+
+    if (insertError || !newItem) {
+      fastify.log.error({ insertError }, 'Error creating marketplace item')
+      reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al crear el artículo'
+      })
+      return
+    }
+
+    // Get seller info for response
+    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(user.id)
+    const sellerName = authUser?.user?.email?.split('@')[0] || 'Usuario'
+
+    let sellerUnit = undefined
+    if (profile.house_id) {
+      const { data: house } = await supabaseAdmin
+        .from('houses')
+        .select('street, external_number')
+        .eq('id', profile.house_id)
+        .single()
+      
+      if (house) {
+        sellerUnit = `${house.street} ${house.external_number}`
+      }
+    }
+
+    reply.status(201).send({
+      id: newItem.id,
+      title: newItem.title,
+      description: newItem.description,
+      price: newItem.price,
+      category: newItem.category,
+      contact_info: newItem.contact_info,
+      created_at: newItem.created_at,
+      seller_name: sellerName,
+      seller_unit: sellerUnit
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items POST')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al crear el artículo'
+    })
+  }
+})
+
 // Graceful shutdown
 const gracefulShutdown = async () => {
   fastify.log.info('Shutting down gracefully...')

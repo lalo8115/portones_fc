@@ -9,6 +9,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { AccessHistoryScreen } from './AccessHistoryScreen'
 import { CommunityForumScreen } from './CommunityForumScreen'
+import { MarketplaceScreen } from './MarketplaceScreen'
 import { SupportScreen } from './SupportScreen'
 import { PaymentStatusScreen } from './PaymentStatusScreen'
 import { AdminPanelScreen } from './AdminPanelScreen'
@@ -256,6 +257,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   const { signOut, user, profile } = useAuth()
   const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [showCommunityForum, setShowCommunityForum] = useState(false)
+  const [showMarketplace, setShowMarketplace] = useState(false)
   const [showSupport, setShowSupport] = useState(false)
   const [showPaymentStatus, setShowPaymentStatus] = useState(false)
   const [showAdminPanel, setShowAdminPanel] = useState(false)
@@ -528,6 +530,13 @@ export const GateControl: React.FC<GateControlProps> = ({
         color: '$purple10',
       },
       {
+        id: 'marketplace',
+        title: 'Marketplace',
+        description: 'Compra y vende entre vecinos',
+        icon: '🛒',
+        color: '$green10',
+      },
+      {
         id: 'history',
         title: 'Historial de Accesos',
         description: 'Ver registro de aperturas del portón',
@@ -589,6 +598,8 @@ export const GateControl: React.FC<GateControlProps> = ({
                   setShowAccessHistory(true)
                 } else if (option.id === 'colonia') {
                   setShowCommunityForum(true)
+                } else if (option.id === 'marketplace') {
+                  setShowMarketplace(true)
                 } else if (option.id === 'admin') {
                   setShowAdminPanel(true)
                 } else if (option.id === 'support') {
@@ -725,6 +736,16 @@ export const GateControl: React.FC<GateControlProps> = ({
         onBack={() => setShowCommunityForum(false)}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
+      />
+    )
+  }
+
+  if (showMarketplace) {
+    return (
+      <MarketplaceScreen
+        apiUrl={apiUrl}
+        authToken={authToken}
+        onBack={() => setShowMarketplace(false)}
       />
     )
   }
