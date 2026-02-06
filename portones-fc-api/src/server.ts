@@ -2272,9 +2272,20 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
   try {
     const user = (request as any).user
     const { id } = request.params as { id: string }
+
+    if (!user) {
+      fastify.log.warn('PATCH /marketplace/items/:id - No user found in request')
+      reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'Usuario no autenticado'
+      })
+      return
+    }
+
     const itemId = parseInt(id, 10)
 
     if (isNaN(itemId)) {
+      fastify.log.warn({ id }, 'PATCH /marketplace/items/:id - Invalid item ID')
       reply.status(400).send({
         error: 'Bad Request',
         message: 'ID inválido'
@@ -2290,6 +2301,8 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
       contact_info?: string
     }
 
+    fastify.log.info({ userId: user.id, itemId }, 'PATCH request received for marketplace item')
+
     // Get existing item to check ownership
     const { data: existingItem, error: fetchError } = await supabaseAdmin
       .from('marketplace_items')
@@ -2297,7 +2310,17 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
       .eq('id', itemId)
       .single()
 
-    if (fetchError || !existingItem) {
+    if (fetchError) {
+      fastify.log.warn({ fetchError, itemId }, 'Item not found for update')
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Artículo no encontrado'
+      })
+      return
+    }
+
+    if (!existingItem) {
+      fastify.log.warn({ itemId }, 'Item is null after fetch')
       reply.status(404).send({
         error: 'Not Found',
         message: 'Artículo no encontrado'
@@ -2307,6 +2330,7 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
 
     // Check if user is the owner
     if (existingItem.seller_id !== user.id) {
+      fastify.log.warn({ userId: user.id, sellerId: existingItem.seller_id }, 'User not authorized to update item')
       reply.status(403).send({
         error: 'Forbidden',
         message: 'No tienes permiso para editar este artículo'
@@ -2398,9 +2422,20 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
   try {
     const user = (request as any).user
     const { id } = request.params as { id: string }
+
+    if (!user) {
+      fastify.log.warn('DELETE /marketplace/items/:id - No user found in request')
+      reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'Usuario no autenticado'
+      })
+      return
+    }
+
     const itemId = parseInt(id, 10)
 
     if (isNaN(itemId)) {
+      fastify.log.warn({ id }, 'DELETE /marketplace/items/:id - Invalid item ID')
       reply.status(400).send({
         error: 'Bad Request',
         message: 'ID inválido'
@@ -2417,8 +2452,17 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
       .eq('id', itemId)
       .single()
 
-    if (fetchError || !existingItem) {
+    if (fetchError) {
       fastify.log.warn({ fetchError, itemId }, 'Item not found for deletion')
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Artículo no encontrado'
+      })
+      return
+    }
+
+    if (!existingItem) {
+      fastify.log.warn({ itemId }, 'Item is null after fetch')
       reply.status(404).send({
         error: 'Not Found',
         message: 'Artículo no encontrado'
