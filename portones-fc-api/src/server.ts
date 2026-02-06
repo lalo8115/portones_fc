@@ -2272,6 +2272,16 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
   try {
     const user = (request as any).user
     const { id } = request.params as { id: string }
+    const itemId = parseInt(id, 10)
+
+    if (isNaN(itemId)) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'ID inválido'
+      })
+      return
+    }
+
     const { title, description, price, category, contact_info } = request.body as {
       title?: string
       description?: string
@@ -2284,7 +2294,7 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
     const { data: existingItem, error: fetchError } = await supabaseAdmin
       .from('marketplace_items')
       .select('seller_id')
-      .eq('id', id)
+      .eq('id', itemId)
       .single()
 
     if (fetchError || !existingItem) {
@@ -2360,7 +2370,7 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
     const { data: updatedItem, error: updateError } = await supabaseAdmin
       .from('marketplace_items')
       .update(updateData)
-      .eq('id', id)
+      .eq('id', itemId)
       .select()
       .single()
 
@@ -2388,18 +2398,27 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
   try {
     const user = (request as any).user
     const { id } = request.params as { id: string }
+    const itemId = parseInt(id, 10)
 
-    fastify.log.info({ userId: user.id, itemId: id }, 'DELETE request received for marketplace item')
+    if (isNaN(itemId)) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'ID inválido'
+      })
+      return
+    }
+
+    fastify.log.info({ userId: user.id, itemId }, 'DELETE request received for marketplace item')
 
     // Get existing item to check ownership
     const { data: existingItem, error: fetchError } = await supabaseAdmin
       .from('marketplace_items')
       .select('seller_id')
-      .eq('id', id)
+      .eq('id', itemId)
       .single()
 
     if (fetchError || !existingItem) {
-      fastify.log.warn({ fetchError, itemId: id }, 'Item not found for deletion')
+      fastify.log.warn({ fetchError, itemId }, 'Item not found for deletion')
       reply.status(404).send({
         error: 'Not Found',
         message: 'Artículo no encontrado'
@@ -2421,7 +2440,7 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
     const { error: deleteError } = await supabaseAdmin
       .from('marketplace_items')
       .delete()
-      .eq('id', id)
+      .eq('id', itemId)
 
     if (deleteError) {
       fastify.log.error({ deleteError }, 'Error deleting marketplace item')
@@ -2432,7 +2451,7 @@ fastify.delete('/marketplace/items/:id', async (request, reply) => {
       return
     }
 
-    fastify.log.info({ itemId: id }, 'Item deleted successfully')
+    fastify.log.info({ itemId }, 'Item deleted successfully')
     reply.status(204).send()
   } catch (error) {
     fastify.log.error({ error }, 'Error in /marketplace/items/:id DELETE')
