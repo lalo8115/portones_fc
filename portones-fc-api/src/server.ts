@@ -2132,12 +2132,14 @@ fastify.get('/marketplace/items', async (request, reply) => {
 fastify.post('/marketplace/items', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { title, description, price, category, contact_info } = request.body as {
+    const { title, description, price, category, contact_info, image_url, pdf_url } = request.body as {
       title?: string
       description?: string
       price?: number
       category?: string
       contact_info?: string
+      image_url?: string
+      pdf_url?: string
     }
 
     // Validate inputs
@@ -2214,6 +2216,8 @@ fastify.post('/marketplace/items', async (request, reply) => {
         price: price,
         category: category,
         contact_info: contact_info?.trim() || null,
+        image_url: image_url || null,
+        pdf_url: pdf_url || null,
         seller_id: user.id,
         colonia_id: profile.colonia_id,
         created_at: new Date().toISOString()
@@ -2294,12 +2298,14 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
       return
     }
 
-    const { title, description, price, category, contact_info } = request.body as {
+    const { title, description, price, category, contact_info, image_url, pdf_url } = request.body as {
       title?: string
       description?: string
       price?: number
       category?: string
       contact_info?: string
+      image_url?: string
+      pdf_url?: string
     }
 
     fastify.log.info({ userId: user.id, itemId }, 'PATCH request received for marketplace item')
@@ -2389,6 +2395,14 @@ fastify.patch('/marketplace/items/:id', async (request, reply) => {
 
     if (contact_info !== undefined) {
       updateData.contact_info = contact_info?.trim() || null
+    }
+
+    if (image_url !== undefined) {
+      updateData.image_url = image_url || null
+    }
+
+    if (pdf_url !== undefined) {
+      updateData.pdf_url = pdf_url || null
     }
 
     // Update item

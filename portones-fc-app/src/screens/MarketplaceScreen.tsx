@@ -23,10 +23,14 @@ import {
   ChevronDown,
   Edit3,
   Trash2,
+  Image as ImageIcon,
+  FileText,
+  X,
 } from '@tamagui/lucide-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Alert, Modal, TouchableOpacity, Platform, RefreshControl } from 'react-native'
 import { useAuth } from '../contexts/AuthContext'
+import { createClient } from '@supabase/supabase-js'
 
 interface MarketplaceScreenProps {
   apiUrl: string
@@ -45,6 +49,7 @@ interface MarketplaceItem {
   created_at: string
   category: 'electronics' | 'furniture' | 'vehicles' | 'clothing' | 'home' | 'services' | 'other'
   image_url?: string
+  pdf_url?: string
   contact_info?: string
 }
 
@@ -54,6 +59,8 @@ interface CreateItemData {
   price: number
   category: 'electronics' | 'furniture' | 'vehicles' | 'clothing' | 'home' | 'services' | 'other'
   contact_info?: string
+  image_url?: string
+  pdf_url?: string
 }
 
 const fetchItems = async (
@@ -141,6 +148,62 @@ const deleteItem = async (
   }
 }
 
+const uploadFileToSupabase = async (
+  file: File,
+  fileType: 'image' | 'pdf',
+  userId: string
+): Promise<string> => {
+  // Validar tipo de archivo
+  const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp']
+  const allowedPdfTypes = ['application/pdf']
+  const allowedTypes = fileType === 'image' ? allowedImageTypes : allowedPdfTypes
+  
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error(`Tipo de archivo no permitido. ${fileType === 'image' ? 'Usa JPG, PNG o WebP' : 'Solo PDF está permitido'}`)
+  }
+
+  // Validar tamaño (máximo 10MB para imágenes, 20MB para PDFs)
+  const maxSize = fileType === 'image' ? 10 * 1024 * 1024 : 20 * 1024 * 1024
+  if (file.size > maxSize) {
+    throw new Error(`Archivo muy grande. Máximo ${fileType === 'image' ? '10MB' : '20MB'}`)
+  }
+
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Supabase configuration missing')
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey)
+  
+  // Generar nombre único para el archivo
+  const timestamp = Date.now()
+  const fileExtension = file.name.split('.').pop()
+  const fileName = `${userId}/${fileType}/${timestamp}.${fileExtension}`
+  
+  const bucketName = 'marketplace-files'
+
+  // Subir archivo a Supabase Storage
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false
+    })
+
+  if (error) {
+    throw new Error(`Error uploading file: ${error.message}`)
+  }
+
+  // Obtener URL pública
+  const { data: { publicUrl } } = supabase.storage
+    .from(bucketName)
+    .getPublicUrl(data.path)
+
+  return publicUrl
+}
+
 export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
   apiUrl,
   authToken,
@@ -155,6 +218,9 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
   const [newItemDescription, setNewItemDescription] = useState('')
   const [newItemPrice, setNewItemPrice] = useState('')
   const [newItemContact, setNewItemContact] = useState('')
+  const [newItemImage, setNewItemImage] = useState<File | null>(null)
+  const [newItemImagePreview, setNewItemImagePreview] = useState<string>('')
+  const [newItemPdf, setNewItemPdf] = useState<File | null>(null)
   const [selectedItem, setSelectedItem] = useState<MarketplaceItem | null>(null)
   const [showItemDetail, setShowItemDetail] = useState(false)
   const [isEditingItem, setIsEditingItem] = useState(false)
@@ -163,6 +229,10 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
   const [editItemPrice, setEditItemPrice] = useState('')
   const [editItemContact, setEditItemContact] = useState('')
   const [editItemCategory, setEditItemCategory] = useState<'electronics' | 'furniture' | 'vehicles' | 'clothing' | 'home' | 'services' | 'other'>('electronics')
+  const [editItemImage, setEditItemImage] = useState<File | null>(null)
+  const [editItemImagePreview, setEditItemImagePreview] = useState<string>('')
+  const [editItemPdf, setEditItemPdf] = useState<File | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
 
   const { data: items, isLoading, refetch } = useQuery({
     queryKey: ['marketplaceItems', selectedCategory],
@@ -326,15 +396,47 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
       return
     }
 
-    const updateData: Partial<CreateItemData> = {
-      title: editItemTitle,
-      description: editItemDescription,
-      price: price,
-      category: editItemCategory,
-      contact_info: editItemContact.trim() || undefined
-    }
+    setIsUploading(true)
+    try {
+      let imageUrl: string | undefined = selectedItem.image_url
+      let pdfUrl: string | undefined = selectedItem.pdf_url
 
-    updateItemMutation.mutate({ id: selectedItem.id, data: updateData })
+      // Subir nueva imagen si se seleccionó
+      if (editItemImage && profile?.id) {
+        try {
+          imageUrl = await uploadFileToSupabase(editItemImage, 'image', profile.id)
+        } catch (error) {
+          Alert.alert('Error', `No se pudo subir la imagen: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          setIsUploading(false)
+          return
+        }
+      }
+
+      // Subir nuevo PDF si se seleccionó
+      if (editItemPdf && profile?.id) {
+        try {
+          pdfUrl = await uploadFileToSupabase(editItemPdf, 'pdf', profile.id)
+        } catch (error) {
+          Alert.alert('Error', `No se pudo subir el PDF: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          setIsUploading(false)
+          return
+        }
+      }
+
+      const updateData: Partial<CreateItemData> = {
+        title: editItemTitle,
+        description: editItemDescription,
+        price: price,
+        category: editItemCategory,
+        contact_info: editItemContact.trim() || undefined,
+        image_url: imageUrl,
+        pdf_url: pdfUrl
+      }
+
+      updateItemMutation.mutate({ id: selectedItem.id, data: updateData })
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const handleDeleteItem = () => {
@@ -361,6 +463,38 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
     }
   }
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (isEdit) {
+        setEditItemImage(file)
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          setEditItemImagePreview(event.target?.result as string)
+        }
+        reader.readAsDataURL(file)
+      } else {
+        setNewItemImage(file)
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          setNewItemImagePreview(event.target?.result as string)
+        }
+        reader.readAsDataURL(file)
+      }
+    }
+  }
+
+  const handlePdfSelect = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (isEdit) {
+        setEditItemPdf(file)
+      } else {
+        setNewItemPdf(file)
+      }
+    }
+  }
+
   const handleCreateItem = async () => {
     if (!newItemTitle.trim() || !newItemDescription.trim() || !newItemPrice.trim()) {
       Alert.alert('Error', 'Por favor completa todos los campos requeridos')
@@ -373,15 +507,47 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
       return
     }
 
-    const itemData: CreateItemData = {
-      title: newItemTitle,
-      description: newItemDescription,
-      price: price,
-      category: selectedCategory,
-      contact_info: newItemContact.trim() || undefined
-    }
+    setIsUploading(true)
+    try {
+      let imageUrl: string | undefined
+      let pdfUrl: string | undefined
 
-    createItemMutation.mutate(itemData)
+      // Subir imagen si existe
+      if (newItemImage && profile?.id) {
+        try {
+          imageUrl = await uploadFileToSupabase(newItemImage, 'image', profile.id)
+        } catch (error) {
+          Alert.alert('Error', `No se pudo subir la imagen: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          setIsUploading(false)
+          return
+        }
+      }
+
+      // Subir PDF si existe
+      if (newItemPdf && profile?.id) {
+        try {
+          pdfUrl = await uploadFileToSupabase(newItemPdf, 'pdf', profile.id)
+        } catch (error) {
+          Alert.alert('Error', `No se pudo subir el PDF: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+          setIsUploading(false)
+          return
+        }
+      }
+
+      const itemData: CreateItemData = {
+        title: newItemTitle,
+        description: newItemDescription,
+        price: price,
+        category: selectedCategory,
+        contact_info: newItemContact.trim() || undefined,
+        image_url: imageUrl,
+        pdf_url: pdfUrl
+      }
+
+      createItemMutation.mutate(itemData)
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const Icon = selectedCategoryData?.icon || Package
@@ -653,15 +819,131 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
                 </Text>
               </YStack>
 
+              {/* Imagen */}
+              <YStack space='$2'>
+                <Text fontSize='$3' fontWeight='600' color='$gray12'>
+                  Imagen (opcional)
+                </Text>
+                {newItemImagePreview && (
+                  <Card size='$4' bordered padding='$2' position='relative'>
+                    <img
+                      src={newItemImagePreview}
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        borderRadius: '8px'
+                      }}
+                      alt="Preview"
+                    />
+                    <Button
+                      position='absolute'
+                      top='$2'
+                      right='$2'
+                      size='$2'
+                      theme='red'
+                      chromeless
+                      circular
+                      icon={<X size={16} />}
+                      onPress={() => {
+                        setNewItemImage(null)
+                        setNewItemImagePreview('')
+                      }}
+                    />
+                  </Card>
+                )}
+                <Card
+                  elevate
+                  size='$3'
+                  bordered
+                  padding='$3'
+                  backgroundColor='$background'
+                  hoverStyle={{ backgroundColor: '$gray3' }}
+                  onPress={() => document.getElementById('new-image-input')?.click()}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <XStack space='$2' alignItems='center' justifyContent='center'>
+                    <ImageIcon size={20} color='$blue10' />
+                    <Text color='$blue10' fontWeight='600'>
+                      {newItemImage ? 'Cambiar imagen' : 'Seleccionar imagen'}
+                    </Text>
+                  </XStack>
+                </Card>
+                <input
+                  id="new-image-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleImageSelect(e, false)}
+                />
+                <Text fontSize='$2' color='$gray10'>
+                  JPG, PNG o WebP. Máximo 10MB
+                </Text>
+              </YStack>
+
+              {/* PDF */}
+              <YStack space='$2'>
+                <Text fontSize='$3' fontWeight='600' color='$gray12'>
+                  PDF (opcional)
+                </Text>
+                {newItemPdf && (
+                  <Card size='$3' bordered padding='$2' backgroundColor='$gray3'>
+                    <XStack space='$2' alignItems='center' justifyContent='space-between'>
+                      <XStack space='$2' alignItems='center' flex={1}>
+                        <FileText size={20} color='$blue10' />
+                        <Text color='$gray12' flex={1} numberOfLines={1}>
+                          {newItemPdf.name}
+                        </Text>
+                      </XStack>
+                      <Button
+                        size='$2'
+                        theme='red'
+                        chromeless
+                        circular
+                        icon={<X size={16} />}
+                        onPress={() => setNewItemPdf(null)}
+                      />
+                    </XStack>
+                  </Card>
+                )}
+                <Card
+                  elevate
+                  size='$3'
+                  bordered
+                  padding='$3'
+                  backgroundColor='$background'
+                  hoverStyle={{ backgroundColor: '$gray3' }}
+                  onPress={() => document.getElementById('new-pdf-input')?.click()}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <XStack space='$2' alignItems='center' justifyContent='center'>
+                    <FileText size={20} color='$blue10' />
+                    <Text color='$blue10' fontWeight='600'>
+                      {newItemPdf ? 'Cambiar PDF' : 'Seleccionar PDF'}
+                    </Text>
+                  </XStack>
+                </Card>
+                <input
+                  id="new-pdf-input"
+                  type="file"
+                  accept="application/pdf"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handlePdfSelect(e, false)}
+                />
+                <Text fontSize='$2' color='$gray10'>
+                  Solo PDF. Máximo 20MB
+                </Text>
+              </YStack>
+
               {/* Botón publicar */}
               <Button
                 size='$5'
                 theme='blue'
                 marginTop='$4'
-                disabled={!isFormValid || createItemMutation.isPending}
+                disabled={!isFormValid || createItemMutation.isPending || isUploading}
                 onPress={handleCreateItem}
               >
-                {createItemMutation.isPending ? 'Publicando...' : 'Publicar Artículo'}
+                {isUploading ? 'Subiendo archivos...' : createItemMutation.isPending ? 'Publicando...' : 'Publicar Artículo'}
               </Button>
             </YStack>
           </YStack>
@@ -1035,6 +1317,146 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
                         </Card>
                       </YStack>
 
+                      {/* Imagen */}
+                      <YStack space='$2'>
+                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
+                          Imagen (opcional)
+                        </Text>
+                        {editItemImagePreview && (
+                          <Card size='$4' bordered padding='$2' position='relative'>
+                            <img
+                              src={editItemImagePreview}
+                              style={{
+                                width: '100%',
+                                height: '200px',
+                                objectFit: 'cover',
+                                borderRadius: '8px'
+                              }}
+                              alt="Preview"
+                            />
+                            <Button
+                              position='absolute'
+                              top='$2'
+                              right='$2'
+                              size='$2'
+                              theme='red'
+                              chromeless
+                              circular
+                              icon={<X size={16} />}
+                              onPress={() => {
+                                setEditItemImage(null)
+                                setEditItemImagePreview('')
+                              }}
+                            />
+                          </Card>
+                        )}
+                        {selectedItem?.image_url && !editItemImagePreview && (
+                          <Card size='$4' bordered padding='$2' position='relative'>
+                            <img
+                              src={selectedItem.image_url}
+                              style={{
+                                width: '100%',
+                                height: '200px',
+                                objectFit: 'cover',
+                                borderRadius: '8px'
+                              }}
+                              alt="Current"
+                            />
+                          </Card>
+                        )}
+                        <Card
+                          elevate
+                          size='$3'
+                          bordered
+                          padding='$3'
+                          backgroundColor='$background'
+                          hoverStyle={{ backgroundColor: '$gray3' }}
+                          onPress={() => document.getElementById('edit-image-input')?.click()}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <XStack space='$2' alignItems='center' justifyContent='center'>
+                            <ImageIcon size={20} color='$blue10' />
+                            <Text color='$blue10' fontWeight='600'>
+                              {editItemImage ? 'Cambiar imagen' : 'Seleccionar imagen'}
+                            </Text>
+                          </XStack>
+                        </Card>
+                        <input
+                          id="edit-image-input"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleImageSelect(e, true)}
+                        />
+                        <Text fontSize='$2' color='$gray10'>
+                          JPG, PNG o WebP. Máximo 10MB
+                        </Text>
+                      </YStack>
+
+                      {/* PDF */}
+                      <YStack space='$2'>
+                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
+                          PDF (opcional)
+                        </Text>
+                        {editItemPdf && (
+                          <Card size='$3' bordered padding='$2' backgroundColor='$gray3'>
+                            <XStack space='$2' alignItems='center' justifyContent='space-between'>
+                              <XStack space='$2' alignItems='center' flex={1}>
+                                <FileText size={20} color='$blue10' />
+                                <Text color='$gray12' flex={1} numberOfLines={1}>
+                                  {editItemPdf.name}
+                                </Text>
+                              </XStack>
+                              <Button
+                                size='$2'
+                                theme='red'
+                                chromeless
+                                circular
+                                icon={<X size={16} />}
+                                onPress={() => setEditItemPdf(null)}
+                              />
+                            </XStack>
+                          </Card>
+                        )}
+                        {selectedItem?.pdf_url && !editItemPdf && (
+                          <Card size='$3' bordered padding='$2' backgroundColor='$gray3'>
+                            <XStack space='$2' alignItems='center'>
+                              <FileText size={20} color='$blue10' />
+                              <Text color='$gray12' flex={1}>
+                                PDF cargado
+                              </Text>
+                            </XStack>
+                          </Card>
+                        )}
+                        <Card
+                          elevate
+                          size='$3'
+                          bordered
+                          padding='$3'
+                          backgroundColor='$background'
+                          hoverStyle={{ backgroundColor: '$gray3' }}
+                          onPress={() => document.getElementById('edit-pdf-input')?.click()}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <XStack space='$2' alignItems='center' justifyContent='center'>
+                            <FileText size={20} color='$blue10' />
+                            <Text color='$blue10' fontWeight='600'>
+                              {editItemPdf ? 'Cambiar PDF' : 'Seleccionar PDF'}
+                            </Text>
+                          </XStack>
+                        </Card>
+                        <input
+                          id="edit-pdf-input"
+                          type="file"
+                          accept="application/pdf"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handlePdfSelect(e, true)}
+                        />
+                        <Text fontSize='$2' color='$gray10'>
+                          Solo PDF. Máximo 20MB
+                        </Text>
+                      </YStack>
+
                       {/* Botones */}
                       <XStack space='$2' marginTop='$2'>
                         <Button
@@ -1048,15 +1470,30 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
                           flex={1}
                           size='$4'
                           theme='blue'
-                          disabled={!isEditFormValid || updateItemMutation.isPending}
+                          disabled={!isEditFormValid || updateItemMutation.isPending || isUploading}
                           onPress={handleSaveEdit}
                         >
-                          {updateItemMutation.isPending ? 'Guardando...' : 'Guardar'}
+                          {isUploading ? 'Subiendo...' : updateItemMutation.isPending ? 'Guardando...' : 'Guardar'}
                         </Button>
                       </XStack>
                     </YStack>
                   ) : (
                     <>
+                      {/* Imagen */}
+                      {selectedItem?.image_url && (
+                        <Card size='$4' bordered padding='$0' overflow='hidden'>
+                          <img
+                            src={selectedItem.image_url}
+                            style={{
+                              width: '100%',
+                              height: '250px',
+                              objectFit: 'cover'
+                            }}
+                            alt="Item"
+                          />
+                        </Card>
+                      )}
+
                       {/* Descripción */}
                       <YStack space='$2'>
                         <Text fontSize='$4' fontWeight='600' color='$gray12'>
@@ -1066,6 +1503,25 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
                           {selectedItem?.description}
                         </Text>
                       </YStack>
+
+                      {/* PDF */}
+                      {selectedItem?.pdf_url && (
+                        <Card bordered padding='$3' backgroundColor='$gray3'>
+                          <XStack space='$2' alignItems='center' justifyContent='space-between'>
+                            <XStack space='$2' alignItems='center' flex={1}>
+                              <FileText size={20} color='$blue10' />
+                              <YStack flex={1}>
+                                <Text fontSize='$3' fontWeight='600' color='$gray12'>
+                                  Documento PDF
+                                </Text>
+                                <Text fontSize='$2' color='$gray10'>
+                                  Toca para ver
+                                </Text>
+                              </YStack>
+                            </XStack>
+                          </XStack>
+                        </Card>
+                      )}
 
                       {/* Información del vendedor */}
                       <Card bordered padding='$3' backgroundColor='$gray2'>
