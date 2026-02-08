@@ -2186,7 +2186,6 @@ fastify.get('/marketplace/items', async (request, reply) => {
         category,
         contact_info,
         image_url,
-        image_urls,
         created_at,
         seller_id,
         colonia_id
@@ -2254,7 +2253,6 @@ fastify.get('/marketplace/items', async (request, reply) => {
         category: item.category,
         contact_info: item.contact_info,
         image_url: item.image_url,
-        image_urls: item.image_urls,
         created_at: item.created_at,
         seller_id: item.seller_id,
         seller_name: seller?.email?.split('@')[0] || 'Usuario',
