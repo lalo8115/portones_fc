@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   colonia_id UUID,
   house_id UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  mps INTEGER DEFAULT 4
 );
 
 -- Add email column if it doesn't exist
@@ -40,6 +41,10 @@ ALTER TABLE profiles
 -- Add house_id column if it doesn't exist
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS house_id UUID;
+
+-- Add mps column if it doesn't exist
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS mps INTEGER DEFAULT 4;
 
 -- Remove apartment_unit column if it exists
 ALTER TABLE profiles
@@ -617,8 +622,8 @@ COMMENT ON TABLE support_messages IS 'Support messages from users';
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, role, created_at, updated_at)
-  VALUES (new.id, new.email, 'user', NOW(), NOW());
+  INSERT INTO public.profiles (id, email, role, mps, created_at, updated_at)
+  VALUES (new.id, new.email, 'user',4, NOW(), NOW());
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;

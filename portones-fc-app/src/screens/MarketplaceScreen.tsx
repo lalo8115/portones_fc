@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import { Alert, ScrollView, TextInput } from 'react-native'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { YStack, XStack, Text, Button, Card, Circle, Spinner } from 'tamagui'
@@ -19,6 +19,65 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
   const [price, setPrice] = useState('')
   const [contactInfo, setContactInfo] = useState('')
   const [formCategory, setFormCategory] = useState<string>('other')
+  const [currentMps, setCurrentMps] = useState<number | null>(null)
+  const [isDecrementingMps, setIsDecrementingMps] = useState(true)
+
+  // Decrement MPS on screen entry
+  useEffect(() => {
+    const decrementMps = async () => {
+      try {
+        // Get current profile to get MPS value
+        const profileResponse = await fetch(`${apiUrl}/profile`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`
+          }
+        })
+
+        if (!profileResponse.ok) {
+          throw new Error('No se pudo obtener el perfil')
+        }
+
+        const profileData: any = await profileResponse.json()
+        const currentMpsValue = profileData.marketplace_sessions || 0
+
+        setCurrentMps(currentMpsValue)
+
+        // Check if MPS is 0 or less
+        if (currentMpsValue <= 0) {
+          Alert.alert(
+            'Acceso limitado',
+            'Has alcanzado tu límite de sesiones del marketplace. Vuelve más tarde o contacta al administrador.',
+            [{ text: 'OK', onPress: onBack }]
+          )
+          return
+        }
+
+        // Decrement MPS
+        const newMpsValue = currentMpsValue - 1
+        const decrementResponse = await fetch(`${apiUrl}/profile/mps`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ mps: newMpsValue })
+        })
+
+        if (!decrementResponse.ok) {
+          throw new Error('No se pudo actualizar el contador de sesiones')
+        }
+
+        setCurrentMps(newMpsValue)
+      } catch (error) {
+        console.error('Error decrementing MPS:', error)
+        Alert.alert('Error', 'Hubo un problema al acceder al marketplace')
+      } finally {
+        setIsDecrementingMps(false)
+      }
+    }
+
+    decrementMps()
+  }, [])
 
   const categories = useMemo(
     () => [
@@ -156,7 +215,12 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
         </XStack>
       </XStack>
 
-      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 16 }}>
+      {isDecrementingMps ? (
+        <XStack flex={1} justifyContent='center' alignItems='center'>
+          <Spinner size='large' color='$green10' />
+        </XStack>
+      ) : (
+        <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 16 }}>
         <YStack space='$4'>
           <Card elevate size='$3.5' bordered padding='$4' backgroundColor='$green2'>
             <XStack space='$3' alignItems='center'>
@@ -410,7 +474,8 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
             ))}
           </YStack>
         </YStack>
-      </ScrollView>
+        </ScrollView>
+      )}
     </YStack>
   )
 }

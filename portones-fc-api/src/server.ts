@@ -1125,6 +1125,7 @@ fastify.get('/profile', async (request, reply) => {
     reply.send({
       id: profile.id,
       email: user.email,
+      marketplace_sessions:profile.mps,
       role: profile.role,
       house_id: profile.house_id,
       colonia_id: profile.colonia_id,
@@ -1762,6 +1763,65 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
     reply.status(500).send({
       error: 'Server Error',
       message: 'Failed to update house information'
+    })
+  }
+})
+
+// Update MPS (motion detection sensitivity) setting
+fastify.put('/profile/mps', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { mps } = request.body as { mps?: number }
+
+    // Validate input
+    if (mps === undefined || mps === null) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El valor de MPS es requerido'
+      })
+      return
+    }
+
+    if (typeof mps !== 'number' || mps < 0) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El valor de MPS debe ser un número positivo'
+      })
+      return
+    }
+
+    // Update profile with new MPS value
+    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update({ mps, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+      .select('id, role, house_id, colonia_id, mps, created_at, updated_at')
+      .single()
+
+    if (updateError || !updatedProfile) {
+      fastify.log.error({ error: updateError }, 'Error updating MPS value')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'No se pudo actualizar el valor de MPS'
+      })
+      return
+    }
+
+    reply.send({
+      id: updatedProfile.id,
+      email: user.email,
+      role: updatedProfile.role,
+      house_id: updatedProfile.house_id,
+      colonia_id: updatedProfile.colonia_id,
+      mps: updatedProfile.mps,
+      created_at: updatedProfile.created_at,
+      updated_at: updatedProfile.updated_at
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /profile/mps')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to update MPS value'
     })
   }
 })
