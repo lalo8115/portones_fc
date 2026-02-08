@@ -872,6 +872,88 @@ fastify.post('/payment/maintenance', async (request, reply) => {
   }
 })
 
+// Get payment history for current user
+fastify.get('/payment/history', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { limit: limitRaw } = request.query as any
+
+    const parsedLimit = Number(limitRaw)
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 100)
+      : 20
+
+    // Obtener colonia y casa del usuario
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      return reply.status(404).send({
+        error: 'Profile not found',
+        message: 'Usuario no encontrado'
+      })
+    }
+
+    if (!profile.colonia_id || !profile.house_id) {
+      return reply.status(400).send({
+        error: 'Invalid profile',
+        message: 'Perfil incompleto - falta colonia o casa'
+      })
+    }
+
+    // Obtener historial de pagos del usuario
+    const { data: payments, error: paymentsError } = await supabaseAdmin
+      .from('maintenance_payments')
+      .select('id, amount, payment_date, period_month, period_year, status, payment_method')
+      .eq('colonia_id', profile.colonia_id)
+      .eq('house_id', profile.house_id)
+      .order('payment_date', { ascending: false })
+      .limit(limit)
+
+    if (paymentsError) {
+      fastify.log.error({ paymentsError }, 'Error fetching payment history')
+      return reply.status(500).send({
+        error: 'Server Error',
+        message: 'Error al obtener historial de pagos'
+      })
+    }
+
+    const history = (payments || []).map((payment: any) => ({
+      id: payment.id,
+      amount: payment.amount,
+      date: payment.payment_date,
+      status: payment.status === 'completed' ? 'Pagado' : 'Pendiente',
+      method: getPaymentMethodName(payment.payment_method),
+      period_month: payment.period_month,
+      period_year: payment.period_year
+    }))
+
+    reply.send({
+      payments: history,
+      total: history.length
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /payment/history')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al obtener historial de pagos'
+    })
+  }
+})
+
+function getPaymentMethodName(method: string | null): string {
+  const methodMap: Record<string, string> = {
+    card: 'Tarjeta',
+    bank_transfer: 'Transferencia',
+    cash: 'Efectivo',
+    check: 'Cheque'
+  }
+  return methodMap[method || 'card'] || 'Tarjeta'
+}
+
 // Get payment status for current user
 fastify.get('/payment/status', async (request, reply) => {
   try {

@@ -1,36 +1,8 @@
-import React, { useState } from 'react'
-import { 
-  YStack, 
-  XStack, 
-  Text, 
-  Button, 
-  Card, 
-  Circle, 
-  ScrollView,
-  Spinner,
-} from 'tamagui'
-import { 
-  ChevronLeft, 
-  Plus, 
-  ShoppingBag,
-  Home as HomeIcon,
-  Wrench,
-  Car,
-  Sofa,
-  Smartphone,
-  Shirt,
-  Package,
-  ChevronDown,
-  Edit3,
-  Trash2,
-  Image as ImageIcon,
-  FileText,
-  X,
-} from '@tamagui/lucide-icons'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Alert, Modal, TouchableOpacity, Platform, RefreshControl } from 'react-native'
-import { useAuth } from '../contexts/AuthContext'
-import { createClient } from '@supabase/supabase-js'
+import React, { useMemo, useState } from 'react'
+import { Alert, ScrollView, TextInput } from 'react-native'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { YStack, XStack, Text, Button, Card, Circle, Spinner } from 'tamagui'
+import { ChevronLeft, ShoppingBag, Tag } from '@tamagui/lucide-icons'
 
 interface MarketplaceScreenProps {
   apiUrl: string
@@ -38,926 +10,135 @@ interface MarketplaceScreenProps {
   onBack: () => void
 }
 
-interface MarketplaceItem {
-  id: number
-  title: string
-  description: string
-  price: number
-  seller_id: string
-  seller_name: string
-  seller_unit?: string
-  created_at: string
-  category: 'electronics' | 'furniture' | 'vehicles' | 'clothing' | 'home' | 'services' | 'other'
-  image_url?: string
-  pdf_url?: string
-  contact_info?: string
-}
-
-interface CreateItemData {
-  title: string
-  description: string
-  price: number
-  category: 'electronics' | 'furniture' | 'vehicles' | 'clothing' | 'home' | 'services' | 'other'
-  contact_info?: string
-  image_url?: string
-  pdf_url?: string
-}
-
-const fetchItems = async (
-  apiUrl: string,
-  authToken: string,
-  category: string
-): Promise<MarketplaceItem[]> => {
-  const response = await fetch(`${apiUrl}/marketplace/items?category=${category}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      'Content-Type': 'application/json'
-    }
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch items')
-  }
-
-  return response.json()
-}
-
-const createItem = async (
-  apiUrl: string,
-  authToken: string,
-  data: CreateItemData
-): Promise<MarketplaceItem> => {
-  const response = await fetch(`${apiUrl}/marketplace/items`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(data)
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.message || 'Failed to create item')
-  }
-
-  return response.json()
-}
-
-const updateItem = async (
-  apiUrl: string,
-  authToken: string,
-  id: number,
-  data: Partial<CreateItemData>
-): Promise<MarketplaceItem> => {
-  const response = await fetch(`${apiUrl}/marketplace/items/${id}`, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(data)
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.message || 'Failed to update item')
-  }
-
-  return response.json()
-}
-
-const deleteItem = async (
-  apiUrl: string,
-  authToken: string,
-  id: number
-): Promise<void> => {
-  const response = await fetch(`${apiUrl}/marketplace/items/${id}/delete`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({})
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.message || 'Failed to delete item')
-  }
-}
-
-const uploadFileToSupabase = async (
-  file: File,
-  fileType: 'image' | 'pdf',
-  userId: string
-): Promise<string> => {
-  // Validar tipo de archivo
-  const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp']
-  const allowedPdfTypes = ['application/pdf']
-  const allowedTypes = fileType === 'image' ? allowedImageTypes : allowedPdfTypes
-  
-  if (!allowedTypes.includes(file.type)) {
-    throw new Error(`Tipo de archivo no permitido. ${fileType === 'image' ? 'Usa JPG, PNG o WebP' : 'Solo PDF está permitido'}`)
-  }
-
-  // Validar tamaño (máximo 10MB para imágenes, 20MB para PDFs)
-  const maxSize = fileType === 'image' ? 10 * 1024 * 1024 : 20 * 1024 * 1024
-  if (file.size > maxSize) {
-    throw new Error(`Archivo muy grande. Máximo ${fileType === 'image' ? '10MB' : '20MB'}`)
-  }
-
-  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase configuration missing')
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseKey)
-  
-  // Generar nombre único para el archivo
-  const timestamp = Date.now()
-  const fileExtension = file.name.split('.').pop()
-  const fileName = `${userId}/${fileType}/${timestamp}.${fileExtension}`
-  
-  const bucketName = 'marketplace-files'
-
-  // Subir archivo a Supabase Storage
-  const { data, error } = await supabase.storage
-    .from(bucketName)
-    .upload(fileName, file, {
-      cacheControl: '3600',
-      upsert: false
-    })
-
-  if (error) {
-    throw new Error(`Error uploading file: ${error.message}`)
-  }
-
-  // Obtener URL pública
-  const { data: { publicUrl } } = supabase.storage
-    .from(bucketName)
-    .getPublicUrl(data.path)
-
-  return publicUrl
-}
-
-export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
-  apiUrl,
-  authToken,
-  onBack
-}) => {
-  const { profile } = useAuth()
+export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, apiUrl, authToken }) => {
   const queryClient = useQueryClient()
-  const [selectedCategory, setSelectedCategory] = useState<'electronics' | 'furniture' | 'vehicles' | 'clothing' | 'home' | 'services' | 'other'>('electronics')
-  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
-  const [showCreateItem, setShowCreateItem] = useState(false)
-  const [newItemTitle, setNewItemTitle] = useState('')
-  const [newItemDescription, setNewItemDescription] = useState('')
-  const [newItemPrice, setNewItemPrice] = useState('')
-  const [newItemContact, setNewItemContact] = useState('')
-  const [newItemImage, setNewItemImage] = useState<File | null>(null)
-  const [newItemImagePreview, setNewItemImagePreview] = useState<string>('')
-  const [newItemPdf, setNewItemPdf] = useState<File | null>(null)
-  const [selectedItem, setSelectedItem] = useState<MarketplaceItem | null>(null)
-  const [showItemDetail, setShowItemDetail] = useState(false)
-  const [isEditingItem, setIsEditingItem] = useState(false)
-  const [editItemTitle, setEditItemTitle] = useState('')
-  const [editItemDescription, setEditItemDescription] = useState('')
-  const [editItemPrice, setEditItemPrice] = useState('')
-  const [editItemContact, setEditItemContact] = useState('')
-  const [editItemCategory, setEditItemCategory] = useState<'electronics' | 'furniture' | 'vehicles' | 'clothing' | 'home' | 'services' | 'other'>('electronics')
-  const [editItemImage, setEditItemImage] = useState<File | null>(null)
-  const [editItemImagePreview, setEditItemImagePreview] = useState<string>('')
-  const [editItemPdf, setEditItemPdf] = useState<File | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [price, setPrice] = useState('')
+  const [contactInfo, setContactInfo] = useState('')
+  const [formCategory, setFormCategory] = useState<string>('other')
 
-  const { data: items, isLoading, refetch } = useQuery({
-    queryKey: ['marketplaceItems', selectedCategory],
-    queryFn: () => fetchItems(apiUrl, authToken, selectedCategory),
-    refetchInterval: 30000
-  })
-
-  const createItemMutation = useMutation({
-    mutationFn: (data: CreateItemData) => createItem(apiUrl, authToken, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['marketplaceItems'] })
-      setShowCreateItem(false)
-      setNewItemTitle('')
-      setNewItemDescription('')
-      setNewItemPrice('')
-      setNewItemContact('')
-      Alert.alert('Éxito', 'Artículo publicado correctamente')
-    },
-    onError: (error: Error) => {
-      Alert.alert('Error', error.message)
-    }
-  })
-
-  const updateItemMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<CreateItemData> }) => 
-      updateItem(apiUrl, authToken, id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['marketplaceItems'] })
-      setIsEditingItem(false)
-      setShowItemDetail(false)
-      Alert.alert('Éxito', 'Artículo actualizado correctamente')
-    },
-    onError: (error: Error) => {
-      Alert.alert('Error', error.message)
-    }
-  })
-
-  const deleteItemMutation = useMutation({
-    mutationFn: (id: number) => deleteItem(apiUrl, authToken, id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['marketplaceItems'] })
-      setShowItemDetail(false)
-      Alert.alert('Éxito', 'Artículo eliminado correctamente')
-    },
-    onError: (error: Error) => {
-      Alert.alert('Error', error.message)
-    }
-  })
-
-  const categories = [
-    {
-      id: 'electronics' as const,
-      title: 'Electrónicos',
-      icon: Smartphone,
-      color: '$blue10',
-      description: 'Celulares, tablets, computadoras'
-    },
-    {
-      id: 'furniture' as const,
-      title: 'Muebles',
-      icon: Sofa,
-      color: '$orange10',
-      description: 'Muebles para el hogar'
-    },
-    {
-      id: 'vehicles' as const,
-      title: 'Vehículos',
-      icon: Car,
-      color: '$red10',
-      description: 'Autos, motos, bicicletas'
-    },
-    {
-      id: 'clothing' as const,
-      title: 'Ropa',
-      icon: Shirt,
-      color: '$purple10',
-      description: 'Ropa y accesorios'
-    },
-    {
-      id: 'home' as const,
-      title: 'Hogar',
-      icon: HomeIcon,
-      color: '$green10',
-      description: 'Artículos para el hogar'
-    },
-    {
-      id: 'services' as const,
-      title: 'Servicios',
-      icon: Wrench,
-      color: '$yellow10',
-      description: 'Servicios profesionales'
-    },
-    {
-      id: 'other' as const,
-      title: 'Otros',
-      icon: Package,
-      color: '$gray10',
-      description: 'Otros artículos'
-    }
-  ]
-
-  const selectedCategoryData = categories.find(c => c.id === selectedCategory)
-  
-  const isFormValid = !!newItemTitle.trim() && !!newItemDescription.trim() && !!newItemPrice.trim()
-  const isEditFormValid = !!editItemTitle.trim() && !!editItemDescription.trim() && !!editItemPrice.trim()
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMs / 3600000)
-    const diffDays = Math.floor(diffMs / 86400000)
-
-    if (diffMins < 1) return 'Hace un momento'
-    if (diffMins < 60) return `Hace ${diffMins} min`
-    if (diffHours < 24) return `Hace ${diffHours} h`
-    if (diffDays < 7) return `Hace ${diffDays} d`
-    
-    return date.toLocaleDateString('es-MX', { 
-      day: '2-digit', 
-      month: 'short',
-      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
-    })
-  }
-
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('es-MX', {
-      style: 'currency',
-      currency: 'MXN'
-    }).format(price)
-  }
-
-  const handleItemPress = (item: MarketplaceItem) => {
-    setSelectedItem(item)
-    setShowItemDetail(true)
-    setIsEditingItem(false)
-  }
-
-  const handleEditItem = () => {
-    if (!selectedItem) return
-    setEditItemTitle(selectedItem.title)
-    setEditItemDescription(selectedItem.description)
-    setEditItemPrice(selectedItem.price.toString())
-    setEditItemContact(selectedItem.contact_info || '')
-    setEditItemCategory(selectedItem.category)
-    setIsEditingItem(true)
-  }
-
-  const handleSaveEdit = async () => {
-    if (!selectedItem) return
-    
-    if (!editItemTitle.trim() || !editItemDescription.trim() || !editItemPrice.trim()) {
-      Alert.alert('Error', 'Por favor completa todos los campos requeridos')
-      return
-    }
-
-    const price = parseFloat(editItemPrice)
-    if (isNaN(price) || price < 0) {
-      Alert.alert('Error', 'Por favor ingresa un precio válido')
-      return
-    }
-
-    setIsUploading(true)
-    try {
-      let imageUrl: string | undefined = selectedItem.image_url
-      let pdfUrl: string | undefined = selectedItem.pdf_url
-
-      // Subir nueva imagen si se seleccionó
-      if (editItemImage && profile?.id) {
-        try {
-          imageUrl = await uploadFileToSupabase(editItemImage, 'image', profile.id)
-        } catch (error) {
-          Alert.alert('Error', `No se pudo subir la imagen: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-          setIsUploading(false)
-          return
-        }
-      }
-
-      // Subir nuevo PDF si se seleccionó
-      if (editItemPdf && profile?.id) {
-        try {
-          pdfUrl = await uploadFileToSupabase(editItemPdf, 'pdf', profile.id)
-        } catch (error) {
-          Alert.alert('Error', `No se pudo subir el PDF: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-          setIsUploading(false)
-          return
-        }
-      }
-
-      const updateData: Partial<CreateItemData> = {
-        title: editItemTitle,
-        description: editItemDescription,
-        price: price,
-        category: editItemCategory,
-        contact_info: editItemContact.trim() || undefined,
-        image_url: imageUrl,
-        pdf_url: pdfUrl
-      }
-
-      updateItemMutation.mutate({ id: selectedItem.id, data: updateData })
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  const handleDeleteItem = () => {
-    if (!selectedItem) return
-    
-    if (Platform.OS === 'web') {
-      const confirmed = window.confirm('¿Estás seguro de que deseas eliminar este artículo?')
-      if (confirmed) {
-        deleteItemMutation.mutate(selectedItem.id)
-      }
-    } else {
-      Alert.alert(
-        'Eliminar artículo',
-        '¿Estás seguro de que deseas eliminar este artículo?',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { 
-            text: 'Eliminar', 
-            style: 'destructive',
-            onPress: () => deleteItemMutation.mutate(selectedItem.id)
-          }
-        ]
-      )
-    }
-  }
-
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      if (isEdit) {
-        setEditItemImage(file)
-        const reader = new FileReader()
-        reader.onload = (event) => {
-          setEditItemImagePreview(event.target?.result as string)
-        }
-        reader.readAsDataURL(file)
-      } else {
-        setNewItemImage(file)
-        const reader = new FileReader()
-        reader.onload = (event) => {
-          setNewItemImagePreview(event.target?.result as string)
-        }
-        reader.readAsDataURL(file)
-      }
-    }
-  }
-
-  const handlePdfSelect = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      if (isEdit) {
-        setEditItemPdf(file)
-      } else {
-        setNewItemPdf(file)
-      }
-    }
-  }
-
-  const handleCreateItem = async () => {
-    if (!newItemTitle.trim() || !newItemDescription.trim() || !newItemPrice.trim()) {
-      Alert.alert('Error', 'Por favor completa todos los campos requeridos')
-      return
-    }
-
-    const price = parseFloat(newItemPrice)
-    if (isNaN(price) || price < 0) {
-      Alert.alert('Error', 'Por favor ingresa un precio válido')
-      return
-    }
-
-    setIsUploading(true)
-    try {
-      let imageUrl: string | undefined
-      let pdfUrl: string | undefined
-
-      // Subir imagen si existe
-      if (newItemImage && profile?.id) {
-        try {
-          imageUrl = await uploadFileToSupabase(newItemImage, 'image', profile.id)
-        } catch (error) {
-          Alert.alert('Error', `No se pudo subir la imagen: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-          setIsUploading(false)
-          return
-        }
-      }
-
-      // Subir PDF si existe
-      if (newItemPdf && profile?.id) {
-        try {
-          pdfUrl = await uploadFileToSupabase(newItemPdf, 'pdf', profile.id)
-        } catch (error) {
-          Alert.alert('Error', `No se pudo subir el PDF: ${error instanceof Error ? error.message : 'Error desconocido'}`)
-          setIsUploading(false)
-          return
-        }
-      }
-
-      const itemData: CreateItemData = {
-        title: newItemTitle,
-        description: newItemDescription,
-        price: price,
-        category: selectedCategory,
-        contact_info: newItemContact.trim() || undefined,
-        image_url: imageUrl,
-        pdf_url: pdfUrl
-      }
-
-      createItemMutation.mutate(itemData)
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  const Icon = selectedCategoryData?.icon || Package
-
-  // Modal de categorías (compartido entre ambas vistas)
-  const CategoryModal = (
-    <Modal
-      visible={showCategoryDropdown}
-      animationType="fade"
-      transparent
-      onRequestClose={() => setShowCategoryDropdown(false)}
-    >
-      <TouchableOpacity
-        style={{ flex: 1 }}
-        activeOpacity={1}
-        onPress={() => setShowCategoryDropdown(false)}
-      >
-        <YStack
-          position="absolute"
-          top={140}
-          left={16}
-          right={16}
-          borderRadius={12}
-          borderWidth={1}
-          borderColor="$gray5"
-          overflow="hidden"
-          backgroundColor="$background"
-          shadowColor="$shadowColor"
-          shadowOffset={{ width: 0, height: 4 }}
-          shadowOpacity={0.3}
-          shadowRadius={8}
-          elevation={8}
-        >
-          {categories.map((cat, index) => {
-            const CatIcon = cat.icon
-            return (
-              <TouchableOpacity
-                key={cat.id}
-                onPress={() => {
-                  if (isEditingItem) {
-                    setEditItemCategory(cat.id)
-                  } else {
-                    setSelectedCategory(cat.id)
-                  }
-                  setShowCategoryDropdown(false)
-                }}
-              >
-                <XStack
-                  padding="$3.5"
-                  alignItems="center"
-                  space="$3"
-                  backgroundColor={(isEditingItem ? editItemCategory : selectedCategory) === cat.id ? '$gray3' : '$background'}
-                  borderBottomWidth={index < categories.length - 1 ? 1 : 0}
-                  borderBottomColor="$gray5"
-                  hoverStyle={{ backgroundColor: '$gray3' }}
-                >
-                  <Circle size={40} backgroundColor={cat.color}>
-                    <CatIcon size={20} color='white' />
-                  </Circle>
-                  <YStack flex={1}>
-                    <Text fontSize="$4" fontWeight="600">{cat.title}</Text>
-                    <Text fontSize="$2" color="$gray11">{cat.description}</Text>
-                  </YStack>
-                  {(isEditingItem ? editItemCategory : selectedCategory) === cat.id && (
-                    <Circle size={8} backgroundColor={cat.color} />
-                  )}
-                </XStack>
-              </TouchableOpacity>
-            )
-          })}
-        </YStack>
-      </TouchableOpacity>
-    </Modal>
+  const categories = useMemo(
+    () => [
+      { id: 'all', label: 'Todo', color: '$gray10' },
+      { id: 'electronics', label: 'Electrónica', color: '$blue10' },
+      { id: 'furniture', label: 'Muebles', color: '$orange10' },
+      { id: 'vehicles', label: 'Vehículos', color: '$red10' },
+      { id: 'clothing', label: 'Ropa', color: '$pink10' },
+      { id: 'home', label: 'Hogar', color: '$purple10' },
+      { id: 'services', label: 'Servicios', color: '$green10' },
+      { id: 'other', label: 'Otros', color: '$gray10' }
+    ],
+    []
   )
 
-  if (showCreateItem) {
-    return (
-      <>
-        <YStack flex={1} backgroundColor='$background'>
-          {/* Header */}
-          <XStack
-            justifyContent='space-between'
-            alignItems='center'
-            padding='$4'
-            paddingTop='$8'
-            backgroundColor='$background'
-            borderBottomWidth={1}
-            borderBottomColor='$gray5'
-          >
-            <XStack alignItems='center' space='$2' flex={1}>
-              <Button
-                size='$3'
-                chromeless
-                icon={<ChevronLeft size={20} />}
-                onPress={() => setShowCreateItem(false)}
-              />
-              <Text fontSize='$6' fontWeight='bold'>
-                Publicar Artículo
-              </Text>
-            </XStack>
-          </XStack>
+  const formatPrice = (value: number) => {
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency: 'MXN',
+      maximumFractionDigits: 2
+    }).format(value)
+  }
 
-          <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
-            <YStack padding='$4' space='$4'>
-              {/* Selector de categoría */}
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                  Categoría *
-                </Text>
-                <Button
-                  size='$4'
-                  width='100%'
-                  justifyContent='space-between'
-                  backgroundColor={selectedCategoryData?.color}
-                  borderRadius='$2'
-                  onPress={() => setShowCategoryDropdown(true)}
-                >
-                  <XStack space='$2' alignItems='center' flex={1}>
-                    <Icon size={18} color='white' />
-                    <YStack flex={1} alignItems='flex-start'>
-                      <Text color='white' fontWeight='600' textAlign='left'>
-                        {selectedCategoryData?.title}
-                      </Text>
-                      <Text color='rgba(255,255,255,0.8)' fontSize='$2' textAlign='left'>
-                        {selectedCategoryData?.description}
-                      </Text>
-                    </YStack>
-                  </XStack>
-                  <ChevronDown size={18} color='white' />
-                </Button>
-              </YStack>
+  const formatDate = (value: string) => {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return date.toLocaleDateString('es-MX', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    })
+  }
 
-            {/* Formulario */}
-            <YStack space='$3'>
-              {/* Título */}
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                  Título *
-                </Text>
-                <Card
-                  elevate
-                  size='$3'
-                  bordered
-                  padding='$3'
-                  backgroundColor='$background'
-                >
-                  <input
-                    style={{
-                      border: 'none',
-                      outline: 'none',
-                      background: 'transparent',
-                      fontSize: '16px',
-                      width: '100%',
-                      fontFamily: 'inherit',
-                      color: 'white'
-                    }}
-                    placeholder="Nombre del artículo"
-                    value={newItemTitle}
-                    onChange={(e) => setNewItemTitle(e.target.value)}
-                    maxLength={100}
-                  />
-                </Card>
-              </YStack>
+  const categoryLabel = (id: string) => categories.find((c) => c.id === id)?.label || 'Otros'
 
-              {/* Precio */}
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                  Precio *
-                </Text>
-                <Card
-                  elevate
-                  size='$3'
-                  bordered
-                  padding='$3'
-                  backgroundColor='$background'
-                >
-                  <XStack space='$2' alignItems='center'>
-                    <Text fontSize='$4' fontWeight='bold' color='$gray11'>$</Text>
-                    <input
-                      style={{
-                        border: 'none',
-                        outline: 'none',
-                        background: 'transparent',
-                        fontSize: '16px',
-                        width: '100%',
-                        fontFamily: 'inherit',
-                        color: 'white'
-                      }}
-                      placeholder="0.00"
-                      value={newItemPrice}
-                      onChange={(e) => {
-                        const value = e.target.value
-                        // Solo permitir números y punto decimal
-                        if (/^\d*\.?\d*$/.test(value)) {
-                          setNewItemPrice(value)
-                        }
-                      }}
-                      inputMode="decimal"
-                    />
-                  </XStack>
-                </Card>
-              </YStack>
+  const fetchItems = async () => {
+    const url = `${apiUrl}/marketplace/items${selectedCategory !== 'all' ? `?category=${selectedCategory}` : ''}`
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${authToken}`
+      }
+    })
 
-              {/* Descripción */}
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                  Descripción *
-                </Text>
-                <Card
-                  elevate
-                  size='$3'
-                  bordered
-                  padding='$3'
-                  backgroundColor='$background'
-                >
-                  <textarea
-                    style={{
-                      border: 'none',
-                      outline: 'none',
-                      background: 'transparent',
-                      fontSize: '16px',
-                      width: '100%',
-                      minHeight: '120px',
-                      resize: 'vertical',
-                      fontFamily: 'inherit',
-                      color: 'white'
-                    }}
-                    placeholder="Describe el artículo, condición, etc."
-                    value={newItemDescription}
-                    onChange={(e) => setNewItemDescription(e.target.value)}
-                    maxLength={500}
-                  />
-                </Card>
-                <Text fontSize='$2' color='$gray10' textAlign='right'>
-                  {newItemDescription.length}/500
-                </Text>
-              </YStack>
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.message || 'No se pudieron cargar los artículos')
+    }
 
-              {/* Información de contacto */}
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                  Información de contacto (opcional)
-                </Text>
-                <Card
-                  elevate
-                  size='$3'
-                  bordered
-                  padding='$3'
-                  backgroundColor='$background'
-                >
-                  <input
-                    style={{
-                      border: 'none',
-                      outline: 'none',
-                      background: 'transparent',
-                      fontSize: '16px',
-                      width: '100%',
-                      fontFamily: 'inherit',
-                      color: 'white'
-                    }}
-                    placeholder="Teléfono o correo electrónico"
-                    value={newItemContact}
-                    onChange={(e) => setNewItemContact(e.target.value)}
-                    maxLength={100}
-                  />
-                </Card>
-                <Text fontSize='$2' color='$gray10'>
-                  Si no proporcionas contacto, se usará tu información de perfil
-                </Text>
-              </YStack>
+    return response.json() as Promise<MarketplaceItem[]>
+  }
 
-              {/* Imagen */}
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                  Imagen (opcional)
-                </Text>
-                {newItemImagePreview && (
-                  <Card size='$4' bordered padding='$2' position='relative'>
-                    <img
-                      src={newItemImagePreview}
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        borderRadius: '8px'
-                      }}
-                      alt="Preview"
-                    />
-                    <Button
-                      position='absolute'
-                      top='$2'
-                      right='$2'
-                      size='$2'
-                      theme='red'
-                      chromeless
-                      circular
-                      icon={<X size={16} />}
-                      onPress={() => {
-                        setNewItemImage(null)
-                        setNewItemImagePreview('')
-                      }}
-                    />
-                  </Card>
-                )}
-                <Card
-                  elevate
-                  size='$3'
-                  bordered
-                  padding='$3'
-                  backgroundColor='$background'
-                  hoverStyle={{ backgroundColor: '$gray3' }}
-                  onPress={() => document.getElementById('new-image-input')?.click()}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <XStack space='$2' alignItems='center' justifyContent='center'>
-                    <ImageIcon size={20} color='$blue10' />
-                    <Text color='$blue10' fontWeight='600'>
-                      {newItemImage ? 'Cambiar imagen' : 'Seleccionar imagen'}
-                    </Text>
-                  </XStack>
-                </Card>
-                <input
-                  id="new-image-input"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  style={{ display: 'none' }}
-                  onChange={(e) => handleImageSelect(e, false)}
-                />
-                <Text fontSize='$2' color='$gray10'>
-                  JPG, PNG o WebP. Máximo 10MB
-                </Text>
-              </YStack>
+  const { data: items, isLoading, isFetching } = useQuery({
+    queryKey: ['marketplace-items', selectedCategory],
+    queryFn: fetchItems
+  })
 
-              {/* PDF */}
-              <YStack space='$2'>
-                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                  PDF (opcional)
-                </Text>
-                {newItemPdf && (
-                  <Card size='$3' bordered padding='$2' backgroundColor='$gray3'>
-                    <XStack space='$2' alignItems='center' justifyContent='space-between'>
-                      <XStack space='$2' alignItems='center' flex={1}>
-                        <FileText size={20} color='$blue10' />
-                        <Text color='$gray12' flex={1} numberOfLines={1}>
-                          {newItemPdf.name}
-                        </Text>
-                      </XStack>
-                      <Button
-                        size='$2'
-                        theme='red'
-                        chromeless
-                        circular
-                        icon={<X size={16} />}
-                        onPress={() => setNewItemPdf(null)}
-                      />
-                    </XStack>
-                  </Card>
-                )}
-                <Card
-                  elevate
-                  size='$3'
-                  bordered
-                  padding='$3'
-                  backgroundColor='$background'
-                  hoverStyle={{ backgroundColor: '$gray3' }}
-                  onPress={() => document.getElementById('new-pdf-input')?.click()}
-                  style={{ cursor: 'pointer' }}
-                >
-                  <XStack space='$2' alignItems='center' justifyContent='center'>
-                    <FileText size={20} color='$blue10' />
-                    <Text color='$blue10' fontWeight='600'>
-                      {newItemPdf ? 'Cambiar PDF' : 'Seleccionar PDF'}
-                    </Text>
-                  </XStack>
-                </Card>
-                <input
-                  id="new-pdf-input"
-                  type="file"
-                  accept="application/pdf"
-                  style={{ display: 'none' }}
-                  onChange={(e) => handlePdfSelect(e, false)}
-                />
-                <Text fontSize='$2' color='$gray10'>
-                  Solo PDF. Máximo 20MB
-                </Text>
-              </YStack>
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const priceNumber = Number.parseFloat(price)
+      if (Number.isNaN(priceNumber)) {
+        throw new Error('El precio debe ser un número válido')
+      }
 
-              {/* Botón publicar */}
-              <Button
-                size='$5'
-                theme='blue'
-                marginTop='$4'
-                disabled={!isFormValid || createItemMutation.isPending || isUploading}
-                onPress={handleCreateItem}
-              >
-                {isUploading ? 'Subiendo archivos...' : createItemMutation.isPending ? 'Publicando...' : 'Publicar Artículo'}
-              </Button>
-            </YStack>
-          </YStack>
-        </ScrollView>
-      </YStack>
-      {CategoryModal}
-      </>
-    )
+      const response = await fetch(`${apiUrl}/marketplace/items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim(),
+          price: priceNumber,
+          category: formCategory,
+          contact_info: contactInfo.trim() || undefined
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || 'No se pudo crear el artículo')
+      }
+
+      return response.json()
+    },
+    onSuccess: () => {
+      setTitle('')
+      setDescription('')
+      setPrice('')
+      setContactInfo('')
+      setFormCategory('other')
+      setShowCreateForm(false)
+      queryClient.invalidateQueries({ queryKey: ['marketplace-items'] })
+    },
+    onError: (error) => {
+      Alert.alert('Error', error instanceof Error ? error.message : 'No se pudo crear el artículo')
+    }
+  })
+
+  const handleCreateItem = () => {
+    if (!title.trim()) {
+      Alert.alert('Error', 'El título es requerido')
+      return
+    }
+
+    if (!description.trim()) {
+      Alert.alert('Error', 'La descripción es requerida')
+      return
+    }
+
+    if (!price.trim()) {
+      Alert.alert('Error', 'El precio es requerido')
+      return
+    }
+
+    createMutation.mutate()
   }
 
   return (
-    <>
-      <YStack flex={1} backgroundColor='$background'>
-      {/* Header */}
+    <YStack flex={1} backgroundColor='$background'>
       <XStack
         justifyContent='space-between'
         alignItems='center'
@@ -968,657 +149,282 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({
         borderBottomColor='$gray5'
       >
         <XStack alignItems='center' space='$2' flex={1}>
-          <Button
-            size='$3'
-            chromeless
-            icon={<ChevronLeft size={20} />}
-            onPress={onBack}
-          />
-          <YStack flex={1}>
-            <Text fontSize='$6' fontWeight='bold'>
-              Marketplace
-            </Text>
-            {profile?.colonia?.nombre && (
-              <Text fontSize='$2' color='$gray11'>
-                {profile.colonia.nombre}
-              </Text>
-            )}
-          </YStack>
+          <Button size='$3' chromeless icon={<ChevronLeft size={20} />} onPress={onBack} />
+          <Text fontSize='$6' fontWeight='bold'>
+            Marketplace
+          </Text>
         </XStack>
-        <Button
-          size='$3'
-          theme='blue'
-          icon={<Plus size={18} />}
-          onPress={() => setShowCreateItem(true)}
-        >
-          Vender
-        </Button>
       </XStack>
 
-      {/* Categorías - Dropdown superpuesto */}
-      <YStack padding='$4' paddingTop='$3' paddingBottom='$3' borderBottomWidth={1} borderBottomColor='$gray5'>
-        <Text fontSize='$2' fontWeight='600' color='$gray11' marginBottom='$2'>
-          Categoría
-        </Text>
-        
-        <Button
-          size='$4'
-          width='100%'
-          justifyContent='space-between'
-          backgroundColor={selectedCategoryData?.color}
-          borderRadius='$2'
-          onPress={() => setShowCategoryDropdown(true)}
-        >
-          <XStack space='$2' alignItems='center' flex={1}>
-            {selectedCategoryData && <selectedCategoryData.icon size={18} color='white' />}
-            <Text color='white' fontWeight='600' flex={1} textAlign='left'>
-              {selectedCategoryData?.title}
-            </Text>
-          </XStack>
-          <ChevronDown size={18} color='white' style={{ transform: [{ rotate: showCategoryDropdown ? '180deg' : '0deg' }] }} />
-        </Button>
-      </YStack>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 16 }}>
+        <YStack space='$4'>
+          <Card elevate size='$3.5' bordered padding='$4' backgroundColor='$green2'>
+            <XStack space='$3' alignItems='center'>
+              <Circle size={44} backgroundColor='$green10' elevate>
+                <ShoppingBag size={22} color='white' />
+              </Circle>
+              <YStack flex={1} space='$1'>
+                <Text fontSize='$5' fontWeight='600'>
+                  Compra y vende entre vecinos
+                </Text>
+                <Text fontSize='$3' color='$gray11'>
+                  Publica artículos, servicios o encuentra lo que necesitas.
+                </Text>
+              </YStack>
+            </XStack>
+          </Card>
 
-      {/* Lista de artículos */}
-      <ScrollView 
-        contentContainerStyle={{ flexGrow: 1, padding: 16 }}
-        refreshControl={
-          <RefreshControl refreshing={isLoading} onRefresh={refetch} />
-        }
-      >
-        {isLoading ? (
-          <YStack flex={1} justifyContent='center' alignItems='center' paddingVertical='$10'>
-            <Spinner size='large' color='$blue10' />
-            <Text fontSize='$3' color='$gray11' marginTop='$3'>
-              Cargando artículos...
-            </Text>
-          </YStack>
-        ) : !items || items.length === 0 ? (
-          <YStack flex={1} justifyContent='center' alignItems='center' padding='$6' space='$4'>
-            <Circle size={80} backgroundColor='$gray5' elevate>
-              <ShoppingBag size={40} color='$gray10' />
-            </Circle>
-            <YStack space='$2' alignItems='center'>
-              <Text fontSize='$6' fontWeight='bold' color='$gray12'>
-                No hay artículos
+          <YStack space='$2'>
+            <XStack justifyContent='space-between' alignItems='center'>
+              <Text fontSize='$5' fontWeight='600'>
+                Categorías
               </Text>
-              <Text fontSize='$4' color='$gray11' textAlign='center'>
-                Sé el primero en publicar algo en esta categoría
-              </Text>
-            </YStack>
-            <Button
-              size='$3'
-              theme='blue'
-              icon={<Plus size={18} />}
-              onPress={() => setShowCreateItem(true)}
-            >
-              Publicar Artículo
-            </Button>
-          </YStack>
-        ) : (
-          <YStack space='$3'>
-            {items.map((item) => (
-              <Card
-                key={item.id}
-                elevate
-                size='$4'
-                bordered
-                padding='$4'
-                pressStyle={{ scale: 0.98, opacity: 0.9 }}
-                onPress={() => handleItemPress(item)}
-              >
-                <YStack space='$3'>
-                  <XStack justifyContent='space-between' alignItems='flex-start'>
-                    <YStack flex={1} space='$1'>
-                      <XStack alignItems='center' space='$2'>
-                        <Text fontSize='$5' fontWeight='bold' color='$color'>
-                          {item.title}
-                        </Text>
-                        {profile?.id === item.seller_id && (
-                          <Card size='$1' backgroundColor='$blue10' paddingHorizontal='$2' paddingVertical='$1'>
-                            <Text fontSize='$1' color='white' fontWeight='bold'>
-                              TU PUBLICACIÓN
-                            </Text>
-                          </Card>
-                        )}
-                      </XStack>
-                      <Text fontSize='$6' fontWeight='800' color='$blue10'>
-                        {formatPrice(item.price)}
-                      </Text>
-                    </YStack>
-                  </XStack>
-
-                  <Text fontSize='$3' color='$gray11' numberOfLines={2}>
-                    {item.description}
-                  </Text>
-
-                  <XStack justifyContent='space-between' alignItems='center' marginTop='$2'>
-                    <YStack space='$0.5'>
-                      <Text fontSize='$2' fontWeight='600' color='$gray12'>
-                        {item.seller_name}
-                      </Text>
-                      {item.seller_unit && (
-                        <Text fontSize='$2' color='$gray10'>
-                          Unidad {item.seller_unit}
-                        </Text>
-                      )}
-                    </YStack>
-                    <Text fontSize='$2' color='$gray10'>
-                      {formatDate(item.created_at)}
+              <Button size='$2.5' theme='green' onPress={() => setShowCreateForm((prev) => !prev)}>
+                {showCreateForm ? 'Cerrar' : 'Publicar'}
+              </Button>
+            </XStack>
+            <XStack flexWrap='wrap' gap='$2'>
+              {categories.map((category) => (
+                <Button
+                  key={category.id}
+                  size='$2.5'
+                  backgroundColor={selectedCategory === category.id ? '$green10' : 'transparent'}
+                  borderColor={selectedCategory === category.id ? '$green10' : '$gray7'}
+                  borderWidth={1}
+                  onPress={() => setSelectedCategory(category.id)}
+                >
+                  <XStack space='$2' alignItems='center'>
+                    <Tag size={14} color={selectedCategory === category.id ? 'white' : '#999'} />
+                    <Text color={selectedCategory === category.id ? 'white' : '$gray11'}>
+                      {category.label}
                     </Text>
                   </XStack>
+                </Button>
+              ))}
+            </XStack>
+          </YStack>
+
+          {showCreateForm && (
+            <Card elevate size='$3.5' bordered padding='$4'>
+              <YStack space='$3'>
+                <Text fontSize='$5' fontWeight='600'>
+                  Publicar artículo
+                </Text>
+
+                <YStack space='$2'>
+                  <Text fontSize='$3' fontWeight='600'>
+                    Título
+                  </Text>
+                  <TextInput
+                    placeholder='Ej. Bicicleta en buen estado'
+                    value={title}
+                    onChangeText={setTitle}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#ccc',
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 14,
+                      fontFamily: 'System',
+                      color: '#333',
+                      backgroundColor: '#fff'
+                    }}
+                  />
+                </YStack>
+
+                <YStack space='$2'>
+                  <Text fontSize='$3' fontWeight='600'>
+                    Descripción
+                  </Text>
+                  <TextInput
+                    placeholder='Describe el artículo o servicio'
+                    value={description}
+                    onChangeText={setDescription}
+                    multiline
+                    numberOfLines={4}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#ccc',
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 14,
+                      fontFamily: 'System',
+                      color: '#333',
+                      backgroundColor: '#fff',
+                      textAlignVertical: 'top'
+                    }}
+                  />
+                </YStack>
+
+                <XStack space='$3'>
+                  <YStack flex={1} space='$2'>
+                    <Text fontSize='$3' fontWeight='600'>
+                      Precio
+                    </Text>
+                    <TextInput
+                      placeholder='Ej. 1200'
+                      value={price}
+                      onChangeText={setPrice}
+                      keyboardType='numeric'
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#ccc',
+                        borderRadius: 8,
+                        padding: 12,
+                        fontSize: 14,
+                        fontFamily: 'System',
+                        color: '#333',
+                        backgroundColor: '#fff'
+                      }}
+                    />
+                  </YStack>
+                  <YStack flex={1} space='$2'>
+                    <Text fontSize='$3' fontWeight='600'>
+                      Categoría
+                    </Text>
+                    <XStack flexWrap='wrap' gap='$2'>
+                      {categories
+                        .filter((category) => category.id !== 'all')
+                        .map((category) => (
+                          <Button
+                            key={category.id}
+                            size='$2.5'
+                            backgroundColor={formCategory === category.id ? '$green10' : 'transparent'}
+                            borderColor={formCategory === category.id ? '$green10' : '$gray7'}
+                            borderWidth={1}
+                            onPress={() => setFormCategory(category.id)}
+                          >
+                            <Text color={formCategory === category.id ? 'white' : '$gray11'}>
+                              {category.label}
+                            </Text>
+                          </Button>
+                        ))}
+                    </XStack>
+                  </YStack>
+                </XStack>
+
+                <YStack space='$2'>
+                  <Text fontSize='$3' fontWeight='600'>
+                    Contacto (opcional)
+                  </Text>
+                  <TextInput
+                    placeholder='Teléfono, WhatsApp o correo'
+                    value={contactInfo}
+                    onChangeText={setContactInfo}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#ccc',
+                      borderRadius: 8,
+                      padding: 12,
+                      fontSize: 14,
+                      fontFamily: 'System',
+                      color: '#333',
+                      backgroundColor: '#fff'
+                    }}
+                  />
+                </YStack>
+
+                <Button size='$3' theme='green' onPress={handleCreateItem} disabled={createMutation.isPending}>
+                  {createMutation.isPending && <Spinner size='small' color='white' />}
+                  <Text fontWeight='700' marginLeft={createMutation.isPending ? '$2' : 0}>
+                    {createMutation.isPending ? 'Publicando...' : 'Publicar'}
+                  </Text>
+                </Button>
+              </YStack>
+            </Card>
+          )}
+
+          <YStack space='$2'>
+            <XStack justifyContent='space-between' alignItems='center'>
+              <Text fontSize='$5' fontWeight='600'>
+                Artículos
+              </Text>
+              <Button
+                size='$2.5'
+                variant='outlined'
+                onPress={() => queryClient.invalidateQueries({ queryKey: ['marketplace-items'] })}
+                disabled={isFetching}
+              >
+                {isFetching ? 'Actualizando...' : 'Actualizar'}
+              </Button>
+            </XStack>
+
+            {isLoading ? (
+              <XStack justifyContent='center' padding='$4'>
+                <Spinner size='large' color='$green10' />
+              </XStack>
+            ) : (items && items.length > 0 ? (
+              <YStack space='$3'>
+                {items.map((item) => (
+                  <Card key={item.id} elevate size='$3.5' bordered padding='$4'>
+                    <YStack space='$2'>
+                      <XStack justifyContent='space-between' alignItems='center'>
+                        <Text fontSize='$5' fontWeight='600'>
+                          {item.title}
+                        </Text>
+                        <Text fontSize='$4' color='$green10' fontWeight='700'>
+                          {formatPrice(Number(item.price))}
+                        </Text>
+                      </XStack>
+
+                      <Text fontSize='$3' color='$gray11'>
+                        {item.description}
+                      </Text>
+
+                      <XStack justifyContent='space-between' alignItems='center'>
+                        <Text fontSize='$2' color='$gray10'>
+                          {categoryLabel(item.category)} · {formatDate(item.created_at)}
+                        </Text>
+                        <Text fontSize='$2' color='$gray10'>
+                          {item.seller_name}{item.seller_unit ? ` · ${item.seller_unit}` : ''}
+                        </Text>
+                      </XStack>
+
+                      {item.contact_info && (
+                        <Card bordered padding='$3' backgroundColor='$gray2'>
+                          <YStack space='$1'>
+                            <Text fontSize='$3' fontWeight='600'>
+                              Contacto
+                            </Text>
+                            <Text fontSize='$3' color='$gray11'>
+                              {item.contact_info}
+                            </Text>
+                          </YStack>
+                        </Card>
+                      )}
+                    </YStack>
+                  </Card>
+                ))}
+              </YStack>
+            ) : (
+              <Card elevate size='$3.5' bordered padding='$4'>
+                <YStack space='$2' alignItems='center'>
+                  <Text fontSize='$5' fontWeight='600'>
+                    Sin publicaciones
+                  </Text>
+                  <Text fontSize='$3' color='$gray11' textAlign='center'>
+                    No hay artículos en esta categoría. Sé el primero en publicar algo.
+                  </Text>
                 </YStack>
               </Card>
             ))}
           </YStack>
-        )}
+        </YStack>
       </ScrollView>
-
-      {/* Modal para ver detalles del artículo */}
-      <Modal
-        visible={showItemDetail}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setShowItemDetail(false)}
-      >
-        <TouchableOpacity
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}
-          activeOpacity={1}
-          onPress={() => setShowItemDetail(false)}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={{ width: '100%', maxWidth: 500, maxHeight: '85%' }}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Card
-              elevate
-              padding='$5'
-              backgroundColor='$background'
-              borderRadius='$4'
-              borderWidth={1}
-              borderColor='$gray5'
-              maxHeight='100%'
-            >
-              <ScrollView showsVerticalScrollIndicator={false}>
-                <YStack space='$4'>
-                  {/* Header */}
-                  <XStack justifyContent='space-between' alignItems='flex-start'>
-                    <YStack flex={1} space='$1'>
-                      {!isEditingItem ? (
-                        <>
-                          <XStack alignItems='center' space='$2'>
-                            <Text fontSize='$6' fontWeight='bold' color='$color'>
-                              {selectedItem?.title}
-                            </Text>
-                            {profile?.id === selectedItem?.seller_id && (
-                              <Card size='$1' backgroundColor='$blue10' paddingHorizontal='$2' paddingVertical='$1'>
-                                <Text fontSize='$1' color='white' fontWeight='bold'>
-                                  TU PUBLICACIÓN
-                                </Text>
-                              </Card>
-                            )}
-                          </XStack>
-                          <Text fontSize='$8' fontWeight='900' color='$blue10'>
-                            {selectedItem && formatPrice(selectedItem.price)}
-                          </Text>
-                        </>
-                      ) : (
-                        <Text fontSize='$6' fontWeight='bold' color='$color'>
-                          Editar Artículo
-                        </Text>
-                      )}
-                    </YStack>
-                    <Button
-                      size='$3'
-                      chromeless
-                      icon={<ChevronLeft size={20} />}
-                      onPress={() => {
-                        setShowItemDetail(false)
-                        setIsEditingItem(false)
-                      }}
-                      style={{ transform: [{ rotate: '180deg' }] }}
-                    />
-                  </XStack>
-
-                  {isEditingItem ? (
-                    /* Formulario de edición */
-                    <YStack space='$3'>
-                      {/* Categoría */}
-                      <YStack space='$2'>
-                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                          Categoría *
-                        </Text>
-                        <Button
-                          size='$4'
-                          width='100%'
-                          justifyContent='space-between'
-                          backgroundColor={categories.find(c => c.id === editItemCategory)?.color}
-                          borderRadius='$2'
-                          onPress={() => setShowCategoryDropdown(true)}
-                        >
-                          <XStack space='$2' alignItems='center' flex={1}>
-                            {(() => {
-                              const cat = categories.find(c => c.id === editItemCategory)
-                              const Icon = cat?.icon || Package
-                              return <Icon size={18} color='white' />
-                            })()}
-                            <Text color='white' fontWeight='600' flex={1} textAlign='left'>
-                              {categories.find(c => c.id === editItemCategory)?.title}
-                            </Text>
-                          </XStack>
-                          <ChevronDown size={18} color='white' />
-                        </Button>
-                      </YStack>
-
-                      {/* Título */}
-                      <YStack space='$2'>
-                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                          Título *
-                        </Text>
-                        <Card elevate size='$3' bordered padding='$3' backgroundColor='$background'>
-                          <input
-                            style={{
-                              border: 'none',
-                              outline: 'none',
-                              background: 'transparent',
-                              fontSize: '16px',
-                              width: '100%',
-                              fontFamily: 'inherit',
-                              color: 'white'
-                            }}
-                            placeholder="Nombre del artículo"
-                            value={editItemTitle}
-                            onChange={(e) => setEditItemTitle(e.target.value)}
-                            maxLength={100}
-                          />
-                        </Card>
-                      </YStack>
-
-                      {/* Precio */}
-                      <YStack space='$2'>
-                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                          Precio *
-                        </Text>
-                        <Card elevate size='$3' bordered padding='$3' backgroundColor='$background'>
-                          <XStack space='$2' alignItems='center'>
-                            <Text fontSize='$4' fontWeight='bold' color='$gray11'>$</Text>
-                            <input
-                              style={{
-                                border: 'none',
-                                outline: 'none',
-                                background: 'transparent',
-                                fontSize: '16px',
-                                width: '100%',
-                                fontFamily: 'inherit',
-                                color: 'white'
-                              }}
-                              placeholder="0.00"
-                              value={editItemPrice}
-                              onChange={(e) => {
-                                const value = e.target.value
-                                if (/^\d*\.?\d*$/.test(value)) {
-                                  setEditItemPrice(value)
-                                }
-                              }}
-                              inputMode="decimal"
-                            />
-                          </XStack>
-                        </Card>
-                      </YStack>
-
-                      {/* Descripción */}
-                      <YStack space='$2'>
-                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                          Descripción *
-                        </Text>
-                        <Card elevate size='$3' bordered padding='$3' backgroundColor='$background'>
-                          <textarea
-                            style={{
-                              border: 'none',
-                              outline: 'none',
-                              background: 'transparent',
-                              fontSize: '16px',
-                              width: '100%',
-                              minHeight: '120px',
-                              resize: 'vertical',
-                              fontFamily: 'inherit',
-                              color: 'white'
-                            }}
-                            placeholder="Describe el artículo, condición, etc."
-                            value={editItemDescription}
-                            onChange={(e) => setEditItemDescription(e.target.value)}
-                            maxLength={500}
-                          />
-                        </Card>
-                      </YStack>
-
-                      {/* Contacto */}
-                      <YStack space='$2'>
-                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                          Información de contacto (opcional)
-                        </Text>
-                        <Card elevate size='$3' bordered padding='$3' backgroundColor='$background'>
-                          <input
-                            style={{
-                              border: 'none',
-                              outline: 'none',
-                              background: 'transparent',
-                              fontSize: '16px',
-                              width: '100%',
-                              fontFamily: 'inherit',
-                              color: 'white'
-                            }}
-                            placeholder="Teléfono o correo electrónico"
-                            value={editItemContact}
-                            onChange={(e) => setEditItemContact(e.target.value)}
-                            maxLength={100}
-                          />
-                        </Card>
-                      </YStack>
-
-                      {/* Imagen */}
-                      <YStack space='$2'>
-                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                          Imagen (opcional)
-                        </Text>
-                        {editItemImagePreview && (
-                          <Card size='$4' bordered padding='$2' position='relative'>
-                            <img
-                              src={editItemImagePreview}
-                              style={{
-                                width: '100%',
-                                height: '200px',
-                                objectFit: 'cover',
-                                borderRadius: '8px'
-                              }}
-                              alt="Preview"
-                            />
-                            <Button
-                              position='absolute'
-                              top='$2'
-                              right='$2'
-                              size='$2'
-                              theme='red'
-                              chromeless
-                              circular
-                              icon={<X size={16} />}
-                              onPress={() => {
-                                setEditItemImage(null)
-                                setEditItemImagePreview('')
-                              }}
-                            />
-                          </Card>
-                        )}
-                        {selectedItem?.image_url && !editItemImagePreview && (
-                          <Card size='$4' bordered padding='$2' position='relative'>
-                            <img
-                              src={selectedItem.image_url}
-                              style={{
-                                width: '100%',
-                                height: '200px',
-                                objectFit: 'cover',
-                                borderRadius: '8px'
-                              }}
-                              alt="Current"
-                            />
-                          </Card>
-                        )}
-                        <Card
-                          elevate
-                          size='$3'
-                          bordered
-                          padding='$3'
-                          backgroundColor='$background'
-                          hoverStyle={{ backgroundColor: '$gray3' }}
-                          onPress={() => document.getElementById('edit-image-input')?.click()}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <XStack space='$2' alignItems='center' justifyContent='center'>
-                            <ImageIcon size={20} color='$blue10' />
-                            <Text color='$blue10' fontWeight='600'>
-                              {editItemImage ? 'Cambiar imagen' : 'Seleccionar imagen'}
-                            </Text>
-                          </XStack>
-                        </Card>
-                        <input
-                          id="edit-image-input"
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp"
-                          style={{ display: 'none' }}
-                          onChange={(e) => handleImageSelect(e, true)}
-                        />
-                        <Text fontSize='$2' color='$gray10'>
-                          JPG, PNG o WebP. Máximo 10MB
-                        </Text>
-                      </YStack>
-
-                      {/* PDF */}
-                      <YStack space='$2'>
-                        <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                          PDF (opcional)
-                        </Text>
-                        {editItemPdf && (
-                          <Card size='$3' bordered padding='$2' backgroundColor='$gray3'>
-                            <XStack space='$2' alignItems='center' justifyContent='space-between'>
-                              <XStack space='$2' alignItems='center' flex={1}>
-                                <FileText size={20} color='$blue10' />
-                                <Text color='$gray12' flex={1} numberOfLines={1}>
-                                  {editItemPdf.name}
-                                </Text>
-                              </XStack>
-                              <Button
-                                size='$2'
-                                theme='red'
-                                chromeless
-                                circular
-                                icon={<X size={16} />}
-                                onPress={() => setEditItemPdf(null)}
-                              />
-                            </XStack>
-                          </Card>
-                        )}
-                        {selectedItem?.pdf_url && !editItemPdf && (
-                          <Card size='$3' bordered padding='$2' backgroundColor='$gray3'>
-                            <XStack space='$2' alignItems='center'>
-                              <FileText size={20} color='$blue10' />
-                              <Text color='$gray12' flex={1}>
-                                PDF cargado
-                              </Text>
-                            </XStack>
-                          </Card>
-                        )}
-                        <Card
-                          elevate
-                          size='$3'
-                          bordered
-                          padding='$3'
-                          backgroundColor='$background'
-                          hoverStyle={{ backgroundColor: '$gray3' }}
-                          onPress={() => document.getElementById('edit-pdf-input')?.click()}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <XStack space='$2' alignItems='center' justifyContent='center'>
-                            <FileText size={20} color='$blue10' />
-                            <Text color='$blue10' fontWeight='600'>
-                              {editItemPdf ? 'Cambiar PDF' : 'Seleccionar PDF'}
-                            </Text>
-                          </XStack>
-                        </Card>
-                        <input
-                          id="edit-pdf-input"
-                          type="file"
-                          accept="application/pdf"
-                          style={{ display: 'none' }}
-                          onChange={(e) => handlePdfSelect(e, true)}
-                        />
-                        <Text fontSize='$2' color='$gray10'>
-                          Solo PDF. Máximo 20MB
-                        </Text>
-                      </YStack>
-
-                      {/* Botones */}
-                      <XStack space='$2' marginTop='$2'>
-                        <Button
-                          flex={1}
-                          size='$4'
-                          onPress={() => setIsEditingItem(false)}
-                        >
-                          Cancelar
-                        </Button>
-                        <Button
-                          flex={1}
-                          size='$4'
-                          theme='blue'
-                          disabled={!isEditFormValid || updateItemMutation.isPending || isUploading}
-                          onPress={handleSaveEdit}
-                        >
-                          {isUploading ? 'Subiendo...' : updateItemMutation.isPending ? 'Guardando...' : 'Guardar'}
-                        </Button>
-                      </XStack>
-                    </YStack>
-                  ) : (
-                    <>
-                      {/* Imagen */}
-                      {selectedItem?.image_url && (
-                        <Card size='$4' bordered padding='$0' overflow='hidden'>
-                          <img
-                            src={selectedItem.image_url}
-                            style={{
-                              width: '100%',
-                              height: '250px',
-                              objectFit: 'cover'
-                            }}
-                            alt="Item"
-                          />
-                        </Card>
-                      )}
-
-                      {/* Descripción */}
-                      <YStack space='$2'>
-                        <Text fontSize='$4' fontWeight='600' color='$gray12'>
-                          Descripción
-                        </Text>
-                        <Text fontSize='$3' color='$gray11' lineHeight='$3'>
-                          {selectedItem?.description}
-                        </Text>
-                      </YStack>
-
-                      {/* PDF */}
-                      {selectedItem?.pdf_url && (
-                        <Card bordered padding='$3' backgroundColor='$gray3'>
-                          <XStack space='$2' alignItems='center' justifyContent='space-between'>
-                            <XStack space='$2' alignItems='center' flex={1}>
-                              <FileText size={20} color='$blue10' />
-                              <YStack flex={1}>
-                                <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                                  Documento PDF
-                                </Text>
-                                <Text fontSize='$2' color='$gray10'>
-                                  Toca para ver
-                                </Text>
-                              </YStack>
-                            </XStack>
-                          </XStack>
-                        </Card>
-                      )}
-
-                      {/* Información del vendedor */}
-                      <Card bordered padding='$3' backgroundColor='$gray2'>
-                        <YStack space='$2'>
-                          <Text fontSize='$4' fontWeight='600' color='$gray12'>
-                            Vendedor
-                          </Text>
-                          <XStack space='$2' alignItems='center'>
-                            <Circle size={40} backgroundColor='$blue10'>
-                              <Text fontSize='$4' color='white' fontWeight='bold'>
-                                {selectedItem?.seller_name.charAt(0).toUpperCase()}
-                              </Text>
-                            </Circle>
-                            <YStack flex={1}>
-                              <Text fontSize='$4' fontWeight='600' color='$gray12'>
-                                {selectedItem?.seller_name}
-                              </Text>
-                              {selectedItem?.seller_unit && (
-                                <Text fontSize='$3' color='$gray10'>
-                                  Unidad {selectedItem.seller_unit}
-                                </Text>
-                              )}
-                            </YStack>
-                          </XStack>
-                          {selectedItem?.contact_info && (
-                            <YStack marginTop='$2' space='$1'>
-                              <Text fontSize='$3' fontWeight='600' color='$gray12'>
-                                Contacto
-                              </Text>
-                              <Text fontSize='$3' color='$blue10'>
-                                {selectedItem.contact_info}
-                              </Text>
-                            </YStack>
-                          )}
-                        </YStack>
-                      </Card>
-
-                      {/* Fecha de publicación */}
-                      <Text fontSize='$2' color='$gray10' textAlign='center'>
-                        Publicado {selectedItem && formatDate(selectedItem.created_at)}
-                      </Text>
-
-                      {/* Botones según si es tu publicación o no */}
-                      {profile?.id === selectedItem?.seller_id ? (
-                        <XStack space='$2'>
-                          <Button
-                            flex={1}
-                            size='$5'
-                            icon={<Edit3 size={18} />}
-                            onPress={handleEditItem}
-                          >
-                            Editar
-                          </Button>
-                          <Button
-                            flex={1}
-                            size='$5'
-                            theme='red'
-                            icon={<Trash2 size={18} />}
-                            onPress={handleDeleteItem}
-                            disabled={deleteItemMutation.isPending}
-                          >
-                            {deleteItemMutation.isPending ? 'Eliminando...' : 'Eliminar'}
-                          </Button>
-                        </XStack>
-                      ) : (
-                        <Button
-                          size='$5'
-                          theme='blue'
-                          onPress={() => {
-                            if (selectedItem?.contact_info) {
-                              Alert.alert(
-                                'Contactar Vendedor',
-                                `Contacto: ${selectedItem.contact_info}`,
-                                [{ text: 'OK' }]
-                              )
-                            } else {
-                              Alert.alert(
-                                'Contactar Vendedor',
-                                'Puedes contactar al vendedor directamente en la privada',
-                                [{ text: 'OK' }]
-                              )
-                            }
-                          }}
-                        >
-                          Contactar Vendedor
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </YStack>
-              </ScrollView>
-            </Card>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-      </YStack>
-      {CategoryModal}
-    </>
+    </YStack>
   )
+}
+
+interface MarketplaceItem {
+  id: number
+  title: string
+  description: string
+  price: number
+  category: string
+  contact_info?: string
+  image_url?: string
+  created_at: string
+  seller_id: string
+  seller_name: string
+  seller_unit?: string
 }

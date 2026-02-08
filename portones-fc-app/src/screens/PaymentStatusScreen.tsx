@@ -1,8 +1,18 @@
-import React from 'react'
-import { ScrollView } from 'react-native'
+import React, { useState, useEffect } from 'react'
+import { ScrollView, Pressable, ActivityIndicator } from 'react-native'
 import { Button, Card, Circle, Text, XStack, YStack } from 'tamagui'
-import { CreditCard } from '@tamagui/lucide-icons'
+import { CreditCard, ChevronDown, ChevronUp } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
+
+interface PaymentHistory {
+  id: string
+  amount: number
+  date: string
+  status: string
+  method: string
+  period_month?: number
+  period_year?: number
+}
 
 interface PaymentStatusData {
   maintenanceAmount?: number
@@ -23,7 +33,44 @@ export const PaymentStatusScreen: React.FC<PaymentStatusScreenProps> = ({
   onBack,
   onNavigateToPayment
 }) => {
-  const { profile } = useAuth()
+  const { profile, token } = useAuth()
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+
+  useEffect(() => {
+    if (isExpanded) {
+      fetchPaymentHistory()
+    }
+  }, [isExpanded])
+
+  const fetchPaymentHistory = async () => {
+    try {
+      setIsLoadingHistory(true)
+      // Ajusta la URL según tu configuración (puede ser localhost:3000, tu dominio en producción, etc.)
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:3000'
+      const response = await fetch(`${apiUrl}/payment/history?limit=20`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        console.error('Error fetching payment history:', response.statusText)
+        setPaymentHistory([])
+        return
+      }
+
+      const data = await response.json()
+      setPaymentHistory(data.payments || [])
+    } catch (error) {
+      console.error('Error fetching payment history:', error)
+      setPaymentHistory([])
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
 
   const amountToPay =
     paymentStatus?.maintenanceAmount ??
@@ -53,37 +100,109 @@ export const PaymentStatusScreen: React.FC<PaymentStatusScreenProps> = ({
         </Text>
         </XStack>
 
-        <Card
-          elevate
-          size='$3.5'
-          bordered
-          padding='$3.5'
-          backgroundColor={!isPaid ? '$red2' : '$green2'}
-        >
-          <YStack space='$4.5' alignItems='center'>
-            <Circle
-              size={80}
-              backgroundColor={!isPaid ? '$red10' : '$green10'}
-              elevate
-            >
-              <Text fontSize='$10' color='white'>
-              {!isPaid ? '!' : '✓'}
-            </Text>
-          </Circle>
-          <Text
-            fontSize='$8'
-            fontWeight='bold'
-            color={!isPaid ? '$red11' : '$green11'}
+        <Pressable onPress={() => setIsExpanded(!isExpanded)}>
+          <Card
+            elevate
+            size='$3.5'
+            bordered
+            padding='$3.5'
+            backgroundColor={!isPaid ? '$red2' : '$green2'}
           >
-            {!isPaid ? 'Pago Pendiente' : 'Pago al Corriente'}
-          </Text>
-          <Text fontSize='$6' color='$gray11' textAlign='center'>
-            {!isPaid
-              ? 'Tu pago mensual está pendiente'
-              : 'Tu siguiente pago vence pronto'}
-          </Text>
-        </YStack>
-      </Card>
+            <YStack space='$4.5' alignItems='center'>
+              <Circle
+                size={80}
+                backgroundColor={!isPaid ? '$red10' : '$green10'}
+                elevate
+              >
+                <Text fontSize='$10' color='white'>
+                {!isPaid ? '!' : '✓'}
+              </Text>
+            </Circle>
+            <Text
+              fontSize='$8'
+              fontWeight='bold'
+              color={!isPaid ? '$red11' : '$green11'}
+            >
+              {!isPaid ? 'Pago Pendiente' : 'Pago al Corriente'}
+            </Text>
+            <Text fontSize='$6' color='$gray11' textAlign='center'>
+              {!isPaid
+                ? 'Tu pago mensual está pendiente'
+                : 'Haz click para ver los estados de cuenta'}
+            </Text>
+            <XStack marginTop='$2' alignItems='center' space='$2'>
+              <Text fontSize='$4' color='$gray10'>
+                {isExpanded ? 'Ocultar' : 'Ver'} historial de pagos
+              </Text>
+              {isExpanded ? (
+                <ChevronUp size={20} color='$gray10' />
+              ) : (
+                <ChevronDown size={20} color='$gray10' />
+              )}
+            </XStack>
+          </YStack>
+        </Card>
+        </Pressable>
+
+        {isExpanded && (
+          <Card elevate size='$3.5' bordered padding='$3.5' backgroundColor='$gray1'>
+            <YStack space='$3'>
+              <Text fontSize='$6' fontWeight='bold'>
+                Historial de Pagos
+              </Text>
+              {isLoadingHistory ? (
+                <YStack alignItems='center' justifyContent='center' padding='$4'>
+                  <ActivityIndicator size='large' />
+                  <Text marginTop='$2' color='$gray11'>
+                    Cargando historial...
+                  </Text>
+                </YStack>
+              ) : paymentHistory.length > 0 ? (
+                paymentHistory.map((payment, index) => {
+                  const paymentDate = new Date(payment.date)
+                  return (
+                    <YStack
+                      key={payment.id}
+                      space='$2'
+                      paddingVertical='$2.5'
+                      borderBottomWidth={
+                        index < paymentHistory.length - 1 ? 1 : 0
+                      }
+                      borderColor='$gray4'
+                    >
+                      <XStack justifyContent='space-between' alignItems='center'>
+                        <YStack space='$1' flex={1}>
+                          <Text fontSize='$4' fontWeight='600'>
+                            ${payment.amount.toFixed(2)} MXN
+                          </Text>
+                          <Text fontSize='$3' color='$gray11'>
+                            {payment.method}
+                          </Text>
+                        </YStack>
+                        <YStack space='$1' alignItems='flex-end'>
+                          <Text fontSize='$3' color='$green11' fontWeight='600'>
+                            {payment.status}
+                          </Text>
+                          <Text fontSize='$3' color='$gray10'>
+                            {paymentDate.toLocaleDateString('es-MX', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </Text>
+                        </YStack>
+                      </XStack>
+                    </YStack>
+                  )
+                })
+              ) : (
+                <Text fontSize='$4' color='$gray10' textAlign='center' padding='$4'>
+                  No hay pagos registrados
+                </Text>
+              )}
+            </YStack>
+          </Card>
+        )}
 
         <Card elevate size='$3.5' bordered padding='$3.5' backgroundColor='$blue2'>
           <YStack space='$2.5'>
