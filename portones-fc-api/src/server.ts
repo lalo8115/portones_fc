@@ -15,7 +15,7 @@ const fastify = Fastify({
 // Register CORS plugin
 await fastify.register(cors, {
   origin: true, // Allow all origins (development)
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true
 })
 
@@ -43,7 +43,8 @@ fastify.addHook('preHandler', async (request, reply) => {
     '/payment/tokenize'
   ]
   
-  if (publicRoutes.includes(request.url)) {
+  // Skip auth for OPTIONS requests (CORS preflight)
+  if (request.method === 'OPTIONS' || publicRoutes.includes(request.url)) {
     return
   }
 
@@ -486,6 +487,132 @@ fastify.get('/access/history', async (request, reply) => {
   }
 })
 
+// Admin maintenance payment report
+fastify.get('/admin/maintenance-report', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { month: monthRaw, year: yearRaw } = request.query as any
+
+    const now = new Date()
+    const parsedMonth = Number(monthRaw)
+    const parsedYear = Number(yearRaw)
+    const periodMonth = Number.isFinite(parsedMonth)
+      ? Math.min(Math.max(parsedMonth, 1), 12)
+      : now.getMonth() + 1
+    const periodYear = Number.isFinite(parsedYear)
+      ? Math.max(parsedYear, 2000)
+      : now.getFullYear()
+
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('role, colonia_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    if (profile.role !== 'admin') {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Admin access required'
+      })
+      return
+    }
+
+    if (!profile.colonia_id) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Admin must belong to a colonia'
+      })
+      return
+    }
+
+    const { data: houses, error: housesError } = await supabaseAdmin
+      .from('houses')
+      .select('id, street, external_number, adeudos_months')
+      .eq('colonia_id', profile.colonia_id)
+
+    if (housesError) {
+      throw housesError
+    }
+
+    const { data: payments, error: paymentsError } = await supabaseAdmin
+      .from('maintenance_payments')
+      .select('id, house_id, amount, payment_date, period_month, period_year, status')
+      .eq('colonia_id', profile.colonia_id)
+      .eq('period_month', periodMonth)
+      .eq('period_year', periodYear)
+      .eq('status', 'completed')
+
+    if (paymentsError) {
+      throw paymentsError
+    }
+
+    const paymentsByHouse = new Map<string, { last_payment_date?: string; last_payment_amount?: number }>()
+    payments?.forEach((payment: any) => {
+      if (!payment.house_id) return
+      const existing = paymentsByHouse.get(payment.house_id)
+      if (!existing || (payment.payment_date && payment.payment_date > (existing.last_payment_date || ''))) {
+        paymentsByHouse.set(payment.house_id, {
+          last_payment_date: payment.payment_date,
+          last_payment_amount: payment.amount
+        })
+      }
+    })
+
+    const paidSet = new Set(Array.from(paymentsByHouse.keys()))
+
+    const paid = (houses ?? [])
+      .filter((house: any) => paidSet.has(house.id))
+      .map((house: any) => {
+        const paymentInfo = paymentsByHouse.get(house.id) || {}
+        return {
+          house_id: house.id,
+          address: `${house.street} ${house.external_number}`,
+          adeudos_months: house.adeudos_months ?? 0,
+          last_payment_date: paymentInfo.last_payment_date ?? null,
+          last_payment_amount: paymentInfo.last_payment_amount ?? null
+        }
+      })
+
+    const unpaid = (houses ?? [])
+      .filter((house: any) => !paidSet.has(house.id))
+      .map((house: any) => ({
+        house_id: house.id,
+        address: `${house.street} ${house.external_number}`,
+        adeudos_months: house.adeudos_months ?? 0,
+        last_payment_date: null,
+        last_payment_amount: null
+      }))
+
+    reply.send({
+      period: {
+        month: periodMonth,
+        year: periodYear
+      },
+      paid,
+      unpaid,
+      totals: {
+        total: (houses ?? []).length,
+        paid: paid.length,
+        unpaid: unpaid.length
+      }
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /admin/maintenance-report')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to fetch maintenance report'
+    })
+  }
+})
+
 // Ruta de prueba MQTT
 fastify.post('/dev/test-mqtt', async (request, reply) => {
   try {
@@ -803,6 +930,88 @@ fastify.post('/payment/maintenance', async (request, reply) => {
   }
 })
 
+// Get payment history for current user
+fastify.get('/payment/history', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { limit: limitRaw } = request.query as any
+
+    const parsedLimit = Number(limitRaw)
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 100)
+      : 20
+
+    // Obtener colonia y casa del usuario
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      return reply.status(404).send({
+        error: 'Profile not found',
+        message: 'Usuario no encontrado'
+      })
+    }
+
+    if (!profile.colonia_id || !profile.house_id) {
+      return reply.status(400).send({
+        error: 'Invalid profile',
+        message: 'Perfil incompleto - falta colonia o casa'
+      })
+    }
+
+    // Obtener historial de pagos del usuario
+    const { data: payments, error: paymentsError } = await supabaseAdmin
+      .from('maintenance_payments')
+      .select('id, amount, payment_date, period_month, period_year, status, payment_method')
+      .eq('colonia_id', profile.colonia_id)
+      .eq('house_id', profile.house_id)
+      .order('payment_date', { ascending: false })
+      .limit(limit)
+
+    if (paymentsError) {
+      fastify.log.error({ paymentsError }, 'Error fetching payment history')
+      return reply.status(500).send({
+        error: 'Server Error',
+        message: 'Error al obtener historial de pagos'
+      })
+    }
+
+    const history = (payments || []).map((payment: any) => ({
+      id: payment.id,
+      amount: payment.amount,
+      date: payment.payment_date,
+      status: payment.status === 'completed' ? 'Pagado' : 'Pendiente',
+      method: getPaymentMethodName(payment.payment_method),
+      period_month: payment.period_month,
+      period_year: payment.period_year
+    }))
+
+    reply.send({
+      payments: history,
+      total: history.length
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /payment/history')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al obtener historial de pagos'
+    })
+  }
+})
+
+function getPaymentMethodName(method: string | null): string {
+  const methodMap: Record<string, string> = {
+    card: 'Tarjeta',
+    bank_transfer: 'Transferencia',
+    cash: 'Efectivo',
+    check: 'Cheque'
+  }
+  return methodMap[method || 'card'] || 'Tarjeta'
+}
+
 // Get payment status for current user
 fastify.get('/payment/status', async (request, reply) => {
   try {
@@ -974,6 +1183,7 @@ fastify.get('/profile', async (request, reply) => {
     reply.send({
       id: profile.id,
       email: user.email,
+      marketplace_sessions:profile.mps,
       role: profile.role,
       house_id: profile.house_id,
       colonia_id: profile.colonia_id,
@@ -2332,6 +2542,65 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
   }
 })
 
+// Update MPS (motion detection sensitivity) setting
+fastify.put('/profile/mps', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { mps } = request.body as { mps?: number }
+
+    // Validate input
+    if (mps === undefined || mps === null) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El valor de MPS es requerido'
+      })
+      return
+    }
+
+    if (typeof mps !== 'number' || mps < 0) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'El valor de MPS debe ser un número positivo'
+      })
+      return
+    }
+
+    // Update profile with new MPS value
+    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update({ mps, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+      .select('id, role, house_id, colonia_id, mps, created_at, updated_at')
+      .single()
+
+    if (updateError || !updatedProfile) {
+      fastify.log.error({ error: updateError }, 'Error updating MPS value')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'No se pudo actualizar el valor de MPS'
+      })
+      return
+    }
+
+    reply.send({
+      id: updatedProfile.id,
+      email: user.email,
+      role: updatedProfile.role,
+      house_id: updatedProfile.house_id,
+      colonia_id: updatedProfile.colonia_id,
+      mps: updatedProfile.mps,
+      created_at: updatedProfile.created_at,
+      updated_at: updatedProfile.updated_at
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /profile/mps')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to update MPS value'
+    })
+  }
+})
+
 // Get forum posts by category
 fastify.get('/forum/posts', async (request, reply) => {
   try {
@@ -2647,6 +2916,515 @@ fastify.post('/support/send', async (request, reply) => {
     reply.status(500).send({
       error: 'Server Error',
       message: 'Failed to send support message'
+    })
+  }
+})
+
+// Marketplace endpoints
+// Get marketplace items by category
+fastify.get('/marketplace/items', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { category } = request.query as { category?: string }
+
+    // Get user profile to get colonia_id
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(404).send({
+        error: 'Profile Not Found',
+        message: 'Usuario no encontrado'
+      })
+      return
+    }
+
+    if (!profile.colonia_id) {
+      reply.status(400).send({
+        error: 'No Colonia',
+        message: 'Debes estar asignado a una colonia para ver el marketplace'
+      })
+      return
+    }
+
+    // Build query
+    let query = supabaseAdmin
+      .from('marketplace_items')
+      .select(`
+        id,
+        title,
+        description,
+        price,
+        category,
+        contact_info,
+        image_url,
+        created_at,
+        seller_id,
+        colonia_id
+      `)
+      .eq('colonia_id', profile.colonia_id)
+      .order('created_at', { ascending: false })
+
+    // Filter by category if provided
+    if (category && category !== 'all') {
+      query = query.eq('category', category)
+    }
+
+    const { data: items, error: itemsError } = await query
+
+    if (itemsError) {
+      fastify.log.error({ itemsError }, 'Error fetching marketplace items')
+      reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al obtener artículos'
+      })
+      return
+    }
+
+    // Get seller information for all items
+    const sellerIds = Array.from(new Set((items ?? []).map((item: any) => item.seller_id)))
+    
+    let sellersMap = new Map<string, { email: string; house_address?: string }>()
+
+    if (sellerIds.length > 0) {
+      // Get emails from auth.users
+      const { data: authUsers, error: authError } = await supabaseAdmin.auth.admin.listUsers()
+      
+      if (!authError && authUsers?.users) {
+        authUsers.users.forEach((u: any) => {
+          if (sellerIds.includes(u.id)) {
+            sellersMap.set(u.id, { email: u.email || 'Usuario' })
+          }
+        })
+      }
+
+      // Get house information from profiles
+      const { data: profiles, error: profilesError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, house_id, houses!fk_profiles_house(street, external_number)')
+        .in('id', sellerIds)
+
+      if (!profilesError && profiles) {
+        profiles.forEach((p: any) => {
+          const existing = sellersMap.get(p.id)
+          if (existing && p.houses) {
+            existing.house_address = `${p.houses.street} ${p.houses.external_number}`
+          }
+        })
+      }
+    }
+
+    // Format response with seller info
+    const formattedItems = (items ?? []).map((item: any) => {
+      const seller = sellersMap.get(item.seller_id)
+      return {
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        price: item.price,
+        category: item.category,
+        contact_info: item.contact_info,
+        image_url: item.image_url,
+        created_at: item.created_at,
+        seller_id: item.seller_id,
+        seller_name: seller?.email?.split('@')[0] || 'Usuario',
+        seller_unit: seller?.house_address || undefined
+      }
+    })
+
+    reply.send(formattedItems)
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al obtener artículos del marketplace'
+    })
+  }
+})
+
+// Create new marketplace item
+fastify.post('/marketplace/items', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { title, description, price, category, contact_info, image_url, pdf_url } = request.body as {
+      title?: string
+      description?: string
+      price?: number
+      category?: string
+      contact_info?: string
+      image_url?: string
+      pdf_url?: string
+    }
+
+    // Validate inputs
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'El título es requerido'
+      })
+      return
+    }
+
+    if (!description || typeof description !== 'string' || !description.trim()) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'La descripción es requerida'
+      })
+      return
+    }
+
+    if (typeof price !== 'number' || price < 0) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'El precio debe ser un número válido'
+      })
+      return
+    }
+
+    if (!category || typeof category !== 'string') {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'La categoría es requerida'
+      })
+      return
+    }
+
+    const validCategories = ['electronics', 'furniture', 'vehicles', 'clothing', 'home', 'services', 'other']
+    if (!validCategories.includes(category)) {
+      reply.status(400).send({
+        error: 'Validation Error',
+        message: 'Categoría inválida'
+      })
+      return
+    }
+
+    // Get user profile to get colonia_id
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id, house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile) {
+      reply.status(404).send({
+        error: 'Profile Not Found',
+        message: 'Usuario no encontrado'
+      })
+      return
+    }
+
+    if (!profile.colonia_id) {
+      reply.status(400).send({
+        error: 'No Colonia',
+        message: 'Debes estar asignado a una colonia para publicar en el marketplace'
+      })
+      return
+    }
+
+    // Create marketplace item
+    const { data: newItem, error: insertError } = await supabaseAdmin
+      .from('marketplace_items')
+      .insert({
+        title: title.trim(),
+        description: description.trim(),
+        price: price,
+        category: category,
+        contact_info: contact_info?.trim() || null,
+        image_url: image_url || null,
+        pdf_url: pdf_url || null,
+        seller_id: user.id,
+        colonia_id: profile.colonia_id,
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single()
+
+    if (insertError || !newItem) {
+      fastify.log.error({ insertError }, 'Error creating marketplace item')
+      reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al crear el artículo'
+      })
+      return
+    }
+
+    // Get seller info for response
+    const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(user.id)
+    const sellerName = authUser?.user?.email?.split('@')[0] || 'Usuario'
+
+    let sellerUnit = undefined
+    if (profile.house_id) {
+      const { data: house } = await supabaseAdmin
+        .from('houses')
+        .select('street, external_number')
+        .eq('id', profile.house_id)
+        .single()
+      
+      if (house) {
+        sellerUnit = `${house.street} ${house.external_number}`
+      }
+    }
+
+    reply.status(201).send({
+      id: newItem.id,
+      title: newItem.title,
+      description: newItem.description,
+      price: newItem.price,
+      category: newItem.category,
+      contact_info: newItem.contact_info,
+      created_at: newItem.created_at,
+      seller_id: user.id,
+      seller_name: sellerName,
+      seller_unit: sellerUnit
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items POST')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al crear el artículo'
+    })
+  }
+})
+
+// Update marketplace item
+fastify.patch('/marketplace/items/:id', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { id } = request.params as { id: string }
+
+    if (!user) {
+      fastify.log.warn('PATCH /marketplace/items/:id - No user found in request')
+      reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'Usuario no autenticado'
+      })
+      return
+    }
+
+    const itemId = parseInt(id, 10)
+
+    if (isNaN(itemId)) {
+      fastify.log.warn({ id }, 'PATCH /marketplace/items/:id - Invalid item ID')
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'ID inválido'
+      })
+      return
+    }
+
+    const { title, description, price, category, contact_info, image_url, pdf_url } = request.body as {
+      title?: string
+      description?: string
+      price?: number
+      category?: string
+      contact_info?: string
+      image_url?: string
+      pdf_url?: string
+    }
+
+    fastify.log.info({ userId: user.id, itemId }, 'PATCH request received for marketplace item')
+
+    // Get existing item to check ownership
+    const { data: existingItem, error: fetchError } = await supabaseAdmin
+      .from('marketplace_items')
+      .select('seller_id')
+      .eq('id', itemId)
+      .single()
+
+    if (fetchError) {
+      fastify.log.warn({ fetchError, itemId }, 'Item not found for update')
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Artículo no encontrado'
+      })
+      return
+    }
+
+    if (!existingItem) {
+      fastify.log.warn({ itemId }, 'Item is null after fetch')
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'Artículo no encontrado'
+      })
+      return
+    }
+
+    // Check if user is the owner
+    if (existingItem.seller_id !== user.id) {
+      fastify.log.warn({ userId: user.id, sellerId: existingItem.seller_id }, 'User not authorized to update item')
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'No tienes permiso para editar este artículo'
+      })
+      return
+    }
+
+    // Build update object
+    const updateData: any = { updated_at: new Date().toISOString() }
+    
+    if (title !== undefined) {
+      if (!title.trim()) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'El título no puede estar vacío'
+        })
+        return
+      }
+      updateData.title = title.trim()
+    }
+
+    if (description !== undefined) {
+      if (!description.trim()) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'La descripción no puede estar vacía'
+        })
+        return
+      }
+      updateData.description = description.trim()
+    }
+
+    if (price !== undefined) {
+      if (typeof price !== 'number' || price < 0) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'El precio debe ser un número válido'
+        })
+        return
+      }
+      updateData.price = price
+    }
+
+    if (category !== undefined) {
+      const validCategories = ['electronics', 'furniture', 'vehicles', 'clothing', 'home', 'services', 'other']
+      if (!validCategories.includes(category)) {
+        reply.status(400).send({
+          error: 'Validation Error',
+          message: 'Categoría inválida'
+        })
+        return
+      }
+      updateData.category = category
+    }
+
+    if (contact_info !== undefined) {
+      updateData.contact_info = contact_info?.trim() || null
+    }
+
+    if (image_url !== undefined) {
+      updateData.image_url = image_url || null
+    }
+
+    if (pdf_url !== undefined) {
+      updateData.pdf_url = pdf_url || null
+    }
+
+    // Update item
+    const { data: updatedItem, error: updateError } = await supabaseAdmin
+      .from('marketplace_items')
+      .update(updateData)
+      .eq('id', itemId)
+      .select()
+      .single()
+
+    if (updateError || !updatedItem) {
+      fastify.log.error({ updateError }, 'Error updating marketplace item')
+      reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al actualizar el artículo'
+      })
+      return
+    }
+
+    reply.send(updatedItem)
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items/:id PATCH')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al actualizar el artículo'
+    })
+  }
+})
+
+// Add explicit OPTIONS handler for marketplace items
+fastify.options('/marketplace/items/:id', async (request, reply) => {
+  reply.status(200).send()
+})
+
+// Delete marketplace item
+fastify.post<{ Params: { id: string } }>('/marketplace/items/:id/delete', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { id } = request.params as { id: string }
+
+    if (!user) {
+      fastify.log.warn('DELETE /marketplace/items/:id - No user found in request')
+      return reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'Usuario no autenticado'
+      })
+    }
+
+    const itemId = parseInt(id, 10)
+
+    if (isNaN(itemId)) {
+      fastify.log.warn({ id }, 'DELETE /marketplace/items/:id - Invalid item ID')
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'ID inválido'
+      })
+    }
+
+    fastify.log.info({ userId: user.id, itemId }, 'DELETE request received for marketplace item')
+
+    // Get existing item to check ownership
+    const { data: existingItem, error: fetchError } = await supabaseAdmin
+      .from('marketplace_items')
+      .select('seller_id')
+      .eq('id', itemId)
+      .single()
+
+    if (fetchError || !existingItem) {
+      fastify.log.warn({ fetchError, itemId }, 'Item not found for deletion')
+      return reply.status(404).send({
+        error: 'Not Found',
+        message: 'Artículo no encontrado'
+      })
+    }
+
+    // Check if user is the owner
+    if (existingItem.seller_id !== user.id) {
+      fastify.log.warn({ userId: user.id, sellerId: existingItem.seller_id }, 'User not authorized to delete item')
+      return reply.status(403).send({
+        error: 'Forbidden',
+        message: 'No tienes permiso para eliminar este artículo'
+      })
+    }
+
+    // Delete item
+    const { error: deleteError } = await supabaseAdmin
+      .from('marketplace_items')
+      .delete()
+      .eq('id', itemId)
+
+    if (deleteError) {
+      fastify.log.error({ deleteError }, 'Error deleting marketplace item')
+      return reply.status(500).send({
+        error: 'Database Error',
+        message: 'Error al eliminar el artículo'
+      })
+    }
+
+    fastify.log.info({ itemId }, 'Item deleted successfully')
+    return reply.status(200).send({ success: true })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items/:id DELETE')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al eliminar el artículo'
     })
   }
 })

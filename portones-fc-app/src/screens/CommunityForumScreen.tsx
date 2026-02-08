@@ -1198,14 +1198,14 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                           </>
                         )}
                         {selectedPost.category === 'messages' && (
-                          <>
+                          <XStack space='$3'>
                             <Circle size={32} backgroundColor='$green10'>
                               <MessageCircle size={16} color='white' />
                             </Circle>
-                            <Text fontSize='$3' color='$green11' fontWeight='600'>
+                            <Text fontSize='$3' color='$green11' fontWeight='600' paddingTop='$1.5'>
                               Mensaje
                             </Text>
-                          </>
+                          </XStack>
                         )}
                       </XStack>
 
