@@ -2186,6 +2186,7 @@ fastify.get('/marketplace/items', async (request, reply) => {
         category,
         contact_info,
         image_url,
+        image_urls,
         created_at,
         seller_id,
         colonia_id
@@ -2253,6 +2254,7 @@ fastify.get('/marketplace/items', async (request, reply) => {
         category: item.category,
         contact_info: item.contact_info,
         image_url: item.image_url,
+        image_urls: item.image_urls,
         created_at: item.created_at,
         seller_id: item.seller_id,
         seller_name: seller?.email?.split('@')[0] || 'Usuario',
@@ -2266,6 +2268,92 @@ fastify.get('/marketplace/items', async (request, reply) => {
     reply.status(500).send({
       error: 'Server Error',
       message: 'Error al obtener artículos del marketplace'
+    })
+  }
+})
+
+// Get all images for a marketplace item from storage
+fastify.get<{ Params: { id: string } }>('/marketplace/items/:id/images', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const itemId = request.params.id
+
+    // Get user profile to get colonia_id
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('colonia_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile?.colonia_id) {
+      reply.status(400).send({
+        error: 'No Colonia',
+        message: 'No se pudo obtener la colonia del usuario'
+      })
+      return
+    }
+
+    // Get the item to verify it exists and belongs to this colonia
+    const { data: item, error: itemError } = await supabaseAdmin
+      .from('marketplace_items')
+      .select('seller_id, colonia_id')
+      .eq('id', itemId)
+      .eq('colonia_id', profile.colonia_id)
+      .single()
+
+    if (itemError || !item) {
+      reply.status(404).send({
+        error: 'Item Not Found',
+        message: 'Artículo no encontrado'
+      })
+      return
+    }
+
+    // List all files in the folder: coloniaID/userID/itemID/
+    const folderPath = `${profile.colonia_id}/${item.seller_id}/${itemId}`
+    const { data: files, error: filesError } = await supabaseAdmin.storage
+      .from('marketplace-files')
+      .list(folderPath, {
+        limit: 100,
+        offset: 0,
+        sortBy: { column: 'name', order: 'asc' }
+      })
+
+    if (filesError) {
+      fastify.log.error({ filesError }, 'Error listing files from storage')
+      reply.status(500).send({
+        error: 'Storage Error',
+        message: 'Error al obtener las imágenes'
+      })
+      return
+    }
+
+    // Filter only image files and get public URLs
+    const imageUrls = (files ?? [])
+      .filter((f: any) => f.name && /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name))
+      .sort((a: any, b: any) => {
+        // Sort by number extracted from filename (1.jpg, 2.jpg, etc.)
+        const aNum = parseInt(a.name.split('.')[0]) || 0
+        const bNum = parseInt(b.name.split('.')[0]) || 0
+        return aNum - bNum
+      })
+      .map((f: any) => {
+        const { data: { publicUrl } } = supabaseAdmin.storage
+          .from('marketplace-files')
+          .getPublicUrl(`${folderPath}/${f.name}`)
+        return publicUrl
+      })
+
+    reply.send({
+      itemId: parseInt(itemId),
+      imageUrls: imageUrls,
+      totalImages: imageUrls.length
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /marketplace/items/:id/images')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Error al obtener las imágenes'
     })
   }
 })
