@@ -11,6 +11,7 @@ import { AccessHistoryScreen } from './AccessHistoryScreen'
 import { CommunityForumScreen } from './CommunityForumScreen'
 import { SupportScreen } from './SupportScreen'
 import { QRManagementScreen } from './QRManagementScreen'
+import { QR_POLICIES } from '../constants/qrPolicies'
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -294,6 +295,35 @@ export const GateControl: React.FC<GateControlProps> = ({
     },
     refetchInterval: 60000 // Refetch cada minuto
   })
+
+  // Query para obtener QRs activos y contar por tipo
+  const { data: qrCodesData } = useQuery({
+    queryKey: ['qrCodes', authToken],
+    queryFn: async () => {
+      const response = await fetch(`${apiUrl}/qr/list`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        return { qrCodes: [] }
+      }
+
+      return response.json()
+    },
+    refetchInterval: 5000 // Refetch cada 5 segundos
+  })
+
+  // Función para contar QRs activos por tipo
+  const getActiveQRCount = (policyType: string): number => {
+    if (!qrCodesData?.qrCodes) return 0
+    return qrCodesData.qrCodes.filter(
+      (qr: any) => qr.rubro === policyType && qr.status === 'active'
+    ).length
+  }
 
   const gates = gatesResponse?.gates || []
 
@@ -1036,65 +1066,18 @@ export const GateControl: React.FC<GateControlProps> = ({
     const [idPhotoUrl, setIdPhotoUrl] = useState<string | null>(null)
     const [generatedQR, setGeneratedQR] = useState<any>(null)
     const [isGenerating, setIsGenerating] = useState(false)
+    
+    // Nuevos estados para formularios específicos
+    const [companyName, setCompanyName] = useState('') // Para servicios
+    const [appName, setAppName] = useState('') // Para delivery y paquetería
+    const [deliveryDateStart, setDeliveryDateStart] = useState<Date>(new Date())
+    const [deliveryDateEnd, setDeliveryDateEnd] = useState<Date>(new Date())
+    const [serviceDate, setServiceDate] = useState<Date>(new Date())
+    const [serviceDuration, setServiceDuration] = useState(4) // Horas (1-12)
+    const [friendVisitDate, setFriendVisitDate] = useState<Date>(new Date())
 
-    // Políticas de QR
-    const qrPolicies = [
-      {
-        id: 'delivery_app',
-        title: 'Repartidor App',
-        description: 'Uber Eats, Rappi, DiDi Food',
-        icon: '🛵',
-        color: '$orange10',
-        duration: '2 horas',
-        visits: 1,
-        requiresId: false,
-        requiresName: true
-      },
-      {
-        id: 'family',
-        title: 'Familiar',
-        description: 'Acceso indefinido con ID',
-        icon: '👨‍👩‍👧‍👦',
-        color: '$green10',
-        duration: '1 año',
-        visits: 500,
-        requiresId: true,
-        requiresName: true
-      },
-      {
-        id: 'friend',
-        title: 'Amigo',
-        description: 'Visita social',
-        icon: '👥',
-        color: '$blue10',
-        duration: '24 horas',
-        visits: 3,
-        requiresId: false,
-        requiresName: true
-      },
-      {
-        id: 'parcel',
-        title: 'Paquetería',
-        description: 'DHL, FedEx, Estafeta',
-        icon: '📦',
-        color: '$purple10',
-        duration: '30 minutos',
-        visits: 1,
-        requiresId: false,
-        requiresName: true
-      },
-      {
-        id: 'service',
-        title: 'Servicio',
-        description: 'Plomero, electricista, etc.',
-        icon: '🔧',
-        color: '$yellow10',
-        duration: '4 horas',
-        visits: 2,
-        requiresId: false,
-        requiresName: true
-      }
-    ]
+    // Políticas de QR (importadas desde configuración centralizada)
+    const qrPolicies = QR_POLICIES
 
     const handleGenerateQR = async () => {
       if (!selectedPolicy) return
@@ -1102,31 +1085,104 @@ export const GateControl: React.FC<GateControlProps> = ({
       const policy = qrPolicies.find(p => p.id === selectedPolicy)
       if (!policy) return
 
-      // Validar campos requeridos
-      if (policy.requiresName && !visitorName.trim()) {
-        Alert.alert('Campo requerido', 'Por favor ingresa el nombre del visitante')
-        return
+      // Validaciones específicas por tipo
+      if (policy.id === 'family') {
+        if (!visitorName.trim()) {
+          Alert.alert('Campo requerido', 'Por favor ingresa el nombre del familiar')
+          return
+        }
+        if (!idPhotoUrl) {
+          Alert.alert('ID requerido', 'Por favor carga una foto de la identificación')
+          return
+        }
       }
 
-      if (policy.requiresId && !idPhotoUrl) {
-        Alert.alert('ID requerido', 'Por favor carga una foto de la identificación')
-        return
+      if (policy.id === 'friend') {
+        if (!visitorName.trim()) {
+          Alert.alert('Campo requerido', 'Por favor ingresa el nombre del amigo')
+          return
+        }
+      }
+
+      if (policy.id === 'delivery_app') {
+        if (!appName.trim()) {
+          Alert.alert('Campo requerido', 'Por favor ingresa el nombre de la aplicación')
+          return
+        }
+      }
+
+      if (policy.id === 'parcel') {
+        if (!appName.trim()) {
+          Alert.alert('Campo requerido', 'Por favor ingresa el nombre de la paquetería')
+          return
+        }
+        if (deliveryDateEnd < deliveryDateStart) {
+          Alert.alert('Fechas inválidas', 'La fecha de fin debe ser posterior a la fecha de inicio')
+          return
+        }
+      }
+
+      if (policy.id === 'service') {
+        if (!companyName.trim() || !visitorName.trim()) {
+          Alert.alert('Campos requeridos', 'Por favor ingresa el nombre de la empresa y del visitante')
+          return
+        }
+        if (!idPhotoUrl) {
+          Alert.alert('ID requerido', 'Por favor carga una foto de la identificación')
+          return
+        }
+        if (serviceDuration < 1 || serviceDuration > 12) {
+          Alert.alert('Duración inválida', 'La duración debe ser entre 1 y 12 horas')
+          return
+        }
       }
 
       setIsGenerating(true)
 
       try {
+        // Preparar datos según tipo
+        let requestData: any = {
+          policyType: selectedPolicy
+        }
+
+        if (policy.id === 'family') {
+          requestData.visitorName = visitorName.trim()
+          requestData.idPhotoUrl = idPhotoUrl
+        } else if (policy.id === 'friend') {
+          requestData.visitorName = visitorName.trim()
+          // Calcular expiración: fecha seleccionada a las 23:59 (usar componentes de fecha directamente)
+          const dateStr = friendVisitDate.toISOString().split('T')[0]
+          const expirationDate = new Date(dateStr + 'T23:59:59')
+          requestData.customExpiration = expirationDate.toISOString()
+        } else if (policy.id === 'delivery_app') {
+          requestData.visitorName = appName.trim()
+        } else if (policy.id === 'parcel') {
+          requestData.visitorName = appName.trim()
+          // Fecha de inicio: 00:00 del día de inicio (usar componentes de fecha directamente)
+          const startDateStr = deliveryDateStart.toISOString().split('T')[0]
+          const validFromDate = new Date(startDateStr + 'T00:00:00')
+          requestData.customValidFrom = validFromDate.toISOString()
+          // Fecha de fin: 23:59 del día final (usar componentes de fecha directamente)
+          const endDateStr = deliveryDateEnd.toISOString().split('T')[0]
+          const expirationDate = new Date(endDateStr + 'T23:59:59')
+          requestData.customExpiration = expirationDate.toISOString()
+        } else if (policy.id === 'service') {
+          requestData.visitorName = `${companyName.trim()} - ${visitorName.trim()}`
+          requestData.idPhotoUrl = idPhotoUrl
+          // Fecha de inicio: la fecha/hora seleccionada
+          requestData.customValidFrom = serviceDate.toISOString()
+          // Calcular expiración basada en fecha + horas
+          const expirationDate = new Date(serviceDate.getTime() + serviceDuration * 60 * 60 * 1000)
+          requestData.customExpiration = expirationDate.toISOString()
+        }
+
         const response = await fetch(`${apiUrl}/qr/generate`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${authToken}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            policyType: selectedPolicy,
-            visitorName: visitorName.trim() || null,
-            idPhotoUrl: idPhotoUrl || null
-          })
+          body: JSON.stringify(requestData)
         })
 
         if (!response.ok) {
@@ -1140,6 +1196,9 @@ export const GateControl: React.FC<GateControlProps> = ({
         // Limpiar formulario
         setVisitorName('')
         setIdPhotoUrl(null)
+        setCompanyName('')
+        setAppName('')
+        setServiceDuration(4)
       } catch (error) {
         Alert.alert('Error', error instanceof Error ? error.message : 'No se pudo generar el QR')
       } finally {
@@ -1161,42 +1220,56 @@ export const GateControl: React.FC<GateControlProps> = ({
               </Text>
             </YStack>
 
-            <XStack flexWrap='wrap' gap='$3' justifyContent='space-between'>
+            <YStack space='$2'>
               {qrPolicies.map((policy) => (
                 <Card
                   key={policy.id}
                   elevate
-                  size='$3'
                   bordered
                   padding='$3'
-                  width='48%'
-                  pressStyle={{ scale: 0.97, opacity: 0.8 }}
+                  pressStyle={{ scale: 0.98, opacity: 0.8, backgroundColor: '$gray2' }}
                   onPress={() => setSelectedPolicy(policy.id)}
                 >
-                  <YStack space='$2' alignItems='center'>
-                    <Circle size={48} backgroundColor={policy.color} elevate>
-                      <Text fontSize='$6'>{policy.icon}</Text>
+                  <XStack space='$3' alignItems='center'>
+                    {/* Icono */}
+                    <Circle size={50} backgroundColor={policy.color} elevate>
+                      <Text fontSize='$7'>{policy.icon}</Text>
                     </Circle>
-                    <YStack space='$1' alignItems='center'>
-                      <Text fontSize='$4' fontWeight='bold' textAlign='center'>
+                    
+                    {/* Contenido */}
+                    <YStack flex={1} space='$1'>
+                      <Text fontSize='$5' fontWeight='bold'>
                         {policy.title}
                       </Text>
-                      <Text fontSize='$2' color='$gray11' textAlign='center' numberOfLines={2}>
+                      <Text fontSize='$2' color='$gray11' numberOfLines={1}>
                         {policy.description}
                       </Text>
-                      <XStack space='$1' marginTop='$1' flexWrap='wrap' justifyContent='center'>
-                        <Card size='$1' backgroundColor='$gray3' paddingHorizontal='$2' paddingVertical='$1'>
-                          <Text fontSize='$1' fontWeight='600'>{policy.duration}</Text>
-                        </Card>
-                        <Card size='$1' backgroundColor='$gray3' paddingHorizontal='$2' paddingVertical='$1'>
-                          <Text fontSize='$1' fontWeight='600'>{policy.visits} {policy.visits === 1 ? 'visita' : 'visitas'}</Text>
-                        </Card>
+                      <XStack space='$2' alignItems='center' flexWrap='wrap'>
+                        <XStack space='$1' alignItems='center'>
+                          <Circle size={4} backgroundColor='$blue10' />
+                          <Text fontSize='$2' color='$gray11'>{policy.duration}</Text>
+                        </XStack>
+                        <XStack space='$1' alignItems='center'>
+                          <Circle size={4} backgroundColor='$green10' />
+                          <Text fontSize='$2' color='$gray11'>{policy.visits} {policy.visits === 1 ? 'visita' : 'visitas'}</Text>
+                        </XStack>
+                        {policy.maxQRsPerHouse !== null && (
+                          <XStack space='$1' alignItems='center'>
+                            <Circle size={4} backgroundColor='$orange10' />
+                            <Text fontSize='$2' color='$gray11'>
+                              {getActiveQRCount(policy.id)}/{policy.maxQRsPerHouse} disponibles
+                            </Text>
+                          </XStack>
+                        )}
                       </XStack>
                     </YStack>
-                  </YStack>
+                    
+                    {/* Flecha */}
+                    <ChevronRight size={24} color='$gray10' />
+                  </XStack>
                 </Card>
               ))}
-            </XStack>
+            </YStack>
 
             {/* Botón para ver gestión de QRs */}
             <Button
@@ -1258,21 +1331,44 @@ export const GateControl: React.FC<GateControlProps> = ({
                   <Text fontSize='$8'>{policy.icon}</Text>
                 </Circle>
                 <Text fontSize='$5' fontWeight='bold' color='$green11'>
-                  ¡QR Generado!
+                  ¡{policy.id === 'delivery_app' || policy.id === 'parcel' ? 'Código Generado' : 'QR Generado'}!
                 </Text>
-                <QRCode
-                  value={JSON.stringify({ code: generatedQR.shortCode })}
-                  size={240}
-                  color='#000000'
-                  backgroundColor='#ffffff'
-                  quietZone={16}
-                  ecl='H'
-                />
-                <Card size='$3' backgroundColor='white' paddingHorizontal='$4' paddingVertical='$2'>
-                  <Text fontSize='$7' fontWeight='bold' letterSpacing={2}>
-                    {generatedQR.shortCode}
-                  </Text>
-                </Card>
+                
+                {/* Mostrar QR visual O short code según tipo */}
+                {(policy.id === 'delivery_app' || policy.id === 'parcel') ? (
+                  // Solo mostrar short code para repartidores y paquetería
+                  <YStack space='$3' alignItems='center'>
+                    <Text fontSize='$4' color='$gray11' textAlign='center'>
+                      Código de acceso para {policy.id === 'delivery_app' ? 'repartidor' : 'paquetería'}
+                    </Text>
+                    <Card size='$4' backgroundColor='white' paddingHorizontal='$6' paddingVertical='$4' bordered>
+                      <Text fontSize='$9' fontWeight='bold' letterSpacing={4} color='black'>
+                        {generatedQR.shortCode}
+                      </Text>
+                    </Card>
+                    <Text fontSize='$3' color='$gray11' textAlign='center'>
+                      El repartidor debe ingresar este código en el teclado numérico
+                    </Text>
+                  </YStack>
+                ) : (
+                  // Mostrar QR visual para familia, amigos y servicios
+                  <YStack space='$3' alignItems='center'>
+                    <QRCode
+                      value={JSON.stringify({ code: generatedQR.shortCode })}
+                      size={240}
+                      color='#000000'
+                      backgroundColor='#ffffff'
+                      quietZone={16}
+                      ecl='H'
+                    />
+                    <Card size='$3' backgroundColor='white' paddingHorizontal='$4' paddingVertical='$2' bordered>
+                      <Text fontSize='$7' fontWeight='bold' letterSpacing={2} color='black'>
+                        {generatedQR.shortCode}
+                      </Text>
+                    </Card>
+                  </YStack>
+                )}
+                
                 {generatedQR.visitorName && (
                   <Text fontSize='$4' fontWeight='600'>
                     {generatedQR.visitorName}
@@ -1301,47 +1397,340 @@ export const GateControl: React.FC<GateControlProps> = ({
                   </Text>
                 </YStack>
 
-                {policy.requiresName && (
-                  <YStack space='$2'>
-                    <Text fontSize='$3' fontWeight='600'>
-                      Nombre <Text color='$red10'>*</Text>
-                    </Text>
-                    <Card bordered padding='$3'>
-                      <input
-                        type="text"
-                        value={visitorName}
-                        onChange={(e: any) => setVisitorName(e.target.value)}
-                        placeholder="Nombre completo del visitante"
-                        style={{
-                          fontSize: '16px',
-                          border: 'none',
-                          outline: 'none',
-                          width: '100%',
-                          backgroundColor: 'transparent',
-                          color: 'white'
+                {/* FORMULARIO FAMILIAR */}
+                {policy.id === 'family' && (
+                  <YStack space='$3'>
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Nombre del Familiar <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="text"
+                          value={visitorName}
+                          onChange={(e: any) => setVisitorName(e.target.value)}
+                          placeholder="Ej: Juan Pérez García"
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                    </YStack>
+
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Foto de Identificación <Text color='$red10'>*</Text>
+                      </Text>
+                      <Button
+                        size='$4'
+                        theme={idPhotoUrl ? 'green' : 'gray'}
+                        onPress={() => {
+                          Alert.alert('Carga de ID', 'Funcionalidad de carga de foto pendiente de implementar')
                         }}
-                      />
+                      >
+                        <Text fontWeight='600'>
+                          {idPhotoUrl ? '✓ ID Cargado' : '📷 Cargar Foto de ID'}
+                        </Text>
+                      </Button>
+                      <Text fontSize='$2' color='$gray11'>
+                        Se requiere INE, pasaporte o identificación oficial
+                      </Text>
+                    </YStack>
+                  </YStack>
+                )}
+
+                {/* FORMULARIO AMIGO */}
+                {policy.id === 'friend' && (
+                  <YStack space='$3'>
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Nombre del Amigo <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="text"
+                          value={visitorName}
+                          onChange={(e: any) => setVisitorName(e.target.value)}
+                          placeholder="Ej: María López"
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                    </YStack>
+
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Fin de visita <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="date"
+                          value={friendVisitDate.toISOString().split('T')[0]}
+                          onChange={(e: any) => setFriendVisitDate(new Date(e.target.value))}
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                      <Text fontSize='$2' color='$gray11'>
+                        El QR será válido desde ahora hasta las 23:59 del día seleccionado. Máximo 2 visitas.
+                      </Text>
+                    </YStack>
+                  </YStack>
+                )}
+
+                {/* FORMULARIO REPARTIDOR APP */}
+                {policy.id === 'delivery_app' && (
+                  <YStack space='$3'>
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Nombre de la Aplicación <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="text"
+                          value={appName}
+                          onChange={(e: any) => setAppName(e.target.value)}
+                          placeholder="Ej: Uber Eats, Rappi, DiDi Food"
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                    </YStack>
+                    <Card backgroundColor='$blue3' padding='$3'>
+                      <Text fontSize='$2' color='$blue11' textAlign='center'>
+                        Se generará un código numérico que el repartidor deberá ingresar en el teclado
+                      </Text>
                     </Card>
                   </YStack>
                 )}
 
-                {policy.requiresId && (
-                  <YStack space='$2'>
-                    <Text fontSize='$3' fontWeight='600'>
-                      Identificación <Text color='$red10'>*</Text>
-                    </Text>
-                    <Button
-                      size='$3'
-                      theme='gray'
-                      onPress={() => {
-                        Alert.alert('Función en desarrollo', 'La carga de ID estará disponible próximamente')
-                      }}
-                    >
-                      {idPhotoUrl ? '✓ ID Cargada' : 'Cargar Foto de ID'}
-                    </Button>
-                    <Text fontSize='$2' color='$gray10'>
-                      Foto de INE, Pasaporte o Licencia
-                    </Text>
+                {/* FORMULARIO PAQUETERÍA */}
+                {policy.id === 'parcel' && (
+                  <YStack space='$3'>
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Nombre de Paquetería <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="text"
+                          value={appName}
+                          onChange={(e: any) => setAppName(e.target.value)}
+                          placeholder="Ej: DHL, FedEx, Estafeta"
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                    </YStack>
+
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Rango de Entrega <Text color='$red10'>*</Text>
+                      </Text>
+                      <XStack space='$2'>
+                        <YStack flex={1} space='$1'>
+                          <Text fontSize='$2' color='$gray11'>Desde</Text>
+                          <Card bordered padding='$3'>
+                            <input
+                              type="date"
+                              value={deliveryDateStart.toISOString().split('T')[0]}
+                              onChange={(e: any) => setDeliveryDateStart(new Date(e.target.value))}
+                              style={{
+                                border: 'none',
+                                outline: 'none',
+                                fontSize: '14px',
+                                width: '100%',
+                                background: 'transparent',
+                                color: 'white'
+                              }}
+                            />
+                          </Card>
+                        </YStack>
+                        <YStack flex={1} space='$1'>
+                          <Text fontSize='$2' color='$gray11'>Hasta</Text>
+                          <Card bordered padding='$3'>
+                            <input
+                              type="date"
+                              value={deliveryDateEnd.toISOString().split('T')[0]}
+                              onChange={(e: any) => setDeliveryDateEnd(new Date(e.target.value))}
+                              style={{
+                                border: 'none',
+                                outline: 'none',
+                                fontSize: '14px',
+                                width: '100%',
+                                background: 'transparent',
+                                color: 'white'
+                              }}
+                            />
+                          </Card>
+                        </YStack>
+                      </XStack>
+                      <Text fontSize='$2' color='$gray11'>
+                        El código expirará el {deliveryDateEnd.toLocaleDateString('es-MX')}
+                      </Text>
+                    </YStack>
+
+                    <Card backgroundColor='$purple3' padding='$3'>
+                      <Text fontSize='$2' color='$purple11' textAlign='center'>
+                        Se generará un código numérico para la paquetería
+                      </Text>
+                    </Card>
+                  </YStack>
+                )}
+
+                {/* FORMULARIO SERVICIO */}
+                {policy.id === 'service' && (
+                  <YStack space='$3'>
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Nombre de la Empresa <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="text"
+                          value={companyName}
+                          onChange={(e: any) => setCompanyName(e.target.value)}
+                          placeholder="Ej: Plomería González"
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                    </YStack>
+
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Nombre del Visitante <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="text"
+                          value={visitorName}
+                          onChange={(e: any) => setVisitorName(e.target.value)}
+                          placeholder="Ej: Carlos Hernández"
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                    </YStack>
+
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Foto de Identificación <Text color='$red10'>*</Text>
+                      </Text>
+                      <Button
+                        size='$4'
+                        theme={idPhotoUrl ? 'green' : 'gray'}
+                        onPress={() => {
+                          Alert.alert('Carga de ID', 'Funcionalidad de carga de foto pendiente de implementar')
+                        }}
+                      >
+                        <Text fontWeight='600'>
+                          {idPhotoUrl ? '✓ ID Cargado' : '📷 Cargar Foto de ID'}
+                        </Text>
+                      </Button>
+                      <Text fontSize='$2' color='$gray11'>
+                        Se requiere INE, pasaporte o identificación oficial
+                      </Text>
+                    </YStack>
+
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Fecha y Hora de Inicio <Text color='$red10'>*</Text>
+                      </Text>
+                      <Card bordered padding='$3'>
+                        <input
+                          type="datetime-local"
+                          value={serviceDate.toISOString().slice(0, 16)}
+                          onChange={(e: any) => setServiceDate(new Date(e.target.value))}
+                          style={{
+                            border: 'none',
+                            outline: 'none',
+                            fontSize: '16px',
+                            width: '100%',
+                            background: 'transparent',
+                            color: 'white'
+                          }}
+                        />
+                      </Card>
+                    </YStack>
+
+                    <YStack space='$2'>
+                      <Text fontSize='$3' fontWeight='600'>
+                        Duración del Servicio <Text color='$red10'>*</Text>
+                      </Text>
+                      <XStack space='$2' alignItems='center'>
+                        <Card bordered padding='$3' flex={1}>
+                          <input
+                            type="number"
+                            min="1"
+                            max="12"
+                            value={serviceDuration}
+                            onChange={(e: any) => setServiceDuration(parseInt(e.target.value) || 1)}
+                            style={{
+                              border: 'none',
+                              outline: 'none',
+                              fontSize: '16px',
+                              width: '100%',
+                              background: 'transparent',
+                              color: 'white'
+                            }}
+                          />
+                        </Card>
+                        <Text fontSize='$3' color='$gray11'>horas</Text>
+                      </XStack>
+                      <Text fontSize='$2' color='$gray11'>
+                        Máximo 12 horas. El código expirará a las {
+                          new Date(serviceDate.getTime() + serviceDuration * 60 * 60 * 1000).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                        }
+                      </Text>
+                    </YStack>
+
+                    <Card backgroundColor='$yellow3' padding='$3'>
+                      <Text fontSize='$2' color='$yellow11' textAlign='center'>
+                        Se guardará como: {companyName || 'Empresa'} - {visitorName || 'Visitante'}
+                      </Text>
+                    </Card>
                   </YStack>
                 )}
 
@@ -1374,7 +1763,9 @@ export const GateControl: React.FC<GateControlProps> = ({
               {isGenerating ? (
                 <Spinner size='small' color='white' />
               ) : (
-                <Text color='white' fontWeight='700'>Generar QR</Text>
+                <Text color='white' fontWeight='700'>
+                  Generar {policy.id === 'delivery_app' || policy.id === 'parcel' ? 'Código' : 'QR'}
+                </Text>
               )}
             </Button>
           )}
