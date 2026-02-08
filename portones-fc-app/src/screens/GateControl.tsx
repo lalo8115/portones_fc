@@ -1166,10 +1166,17 @@ export const GateControl: React.FC<GateControlProps> = ({
               chromeless
               icon={<Text fontSize='$5'>←</Text>}
               onPress={() => {
-                setSelectedPolicy(null)
-                setGeneratedQR(null)
-                setVisitorName('')
-                setIdPhotoUrl(null)
+                if (generatedQR) {
+                  // Si hay un QR generado, solo limpiar el QR pero mantener la política seleccionada
+                  setGeneratedQR(null)
+                } else {
+                  // Si no hay QR generado, volver a la selección de política
+                  setSelectedPolicy(null)
+                  setVisitorName('')
+                  setIdPhotoUrl(null)
+                  setCompanyName('')
+                  setAppName('')
+                }
               }}
             />
             <YStack flex={1}>
