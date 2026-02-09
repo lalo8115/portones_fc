@@ -138,6 +138,12 @@ CREATE TABLE IF NOT EXISTS colonias (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+ALTER TABLE colonias
+  ADD COLUMN IF NOT EXISTS payment_due_date TEXT;
+
+COMMENT ON COLUMN colonias.payment_due_date IS 'Due date for monthly maintenance payments';
+
+CREATE INDEX IF NOT EXISTS idx_colonias_payment_due_date ON colonias(payment_due_date);
 -- Ensure streets column exists
 ALTER TABLE colonias
   ADD COLUMN IF NOT EXISTS streets TEXT[] DEFAULT ARRAY[]::TEXT[];

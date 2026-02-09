@@ -91,6 +91,19 @@ export const PaymentStatusScreen: React.FC<PaymentStatusScreenProps> = ({
     : null
   const nextPaymentDate = paymentStatus?.nextPaymentDue
     ? new Date(paymentStatus.nextPaymentDue)
+    : profile?.colonia?.payment_due_day
+    ? (() => {
+        const today = new Date()
+        const year = today.getFullYear()
+        const month = today.getMonth()
+        const day = profile.colonia.payment_due_day!
+        const dueDate = new Date(year, month, day)
+        // Si ya pasó el día de vencimiento este mes, calcula para el próximo mes
+        if (dueDate < today) {
+          dueDate.setMonth(dueDate.getMonth() + 1)
+        }
+        return dueDate
+      })()
     : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
 
   return (

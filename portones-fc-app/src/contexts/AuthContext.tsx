@@ -15,6 +15,7 @@ interface Colonia {
   id: string
   nombre: string
   maintenance_monthly_amount?: number | null
+  payment_due_day?: number | null
 }
 
 interface UserProfile {

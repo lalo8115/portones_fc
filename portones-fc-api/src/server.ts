@@ -687,7 +687,7 @@ fastify.post('/payment/maintenance', async (request, reply) => {
     // Obtener colonia y monto de mantenimiento
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, house_id, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount), houses!fk_profiles_house(id, street, external_number)')
+      .select('colonia_id, house_id, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount, payment_due_day), houses!fk_profiles_house(id, street, external_number)')
       .eq('id', user.id)
       .single() as any
 
@@ -944,7 +944,7 @@ fastify.get('/payment/status', async (request, reply) => {
     // Obtener colonia y casa (house_id)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, house_id, colonias!fk_profiles_colonia(maintenance_monthly_amount)')
+      .select('colonia_id, house_id, colonias!fk_profiles_colonia(maintenance_monthly_amount, payment_due_day)')
       .eq('id', user.id)
       .single() as any
 
@@ -1050,7 +1050,7 @@ fastify.get('/profile', async (request, reply) => {
     // Get user profile
     let { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount), houses!fk_profiles_house(id, street, external_number, number_of_people)')
+      .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount, payment_due_day), houses!fk_profiles_house(id, street, external_number, number_of_people)')
       .eq('id', user.id)
       .single()
 
@@ -1077,7 +1077,7 @@ fastify.get('/profile', async (request, reply) => {
           // Profile was created by another request; re-fetch it
           const { data: existingProfile, error: fetchError } = await supabaseAdmin
             .from('profiles')
-            .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount), houses!fk_profiles_house(id, street, external_number, number_of_people)')
+            .select('*, colonias!fk_profiles_colonia(id, nombre, maintenance_monthly_amount, payment_due_day), houses!fk_profiles_house(id, street, external_number, number_of_people)')
             .eq('id', user.id)
             .single()
 
