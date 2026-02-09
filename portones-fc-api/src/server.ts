@@ -1630,11 +1630,12 @@ fastify.post('/profile/check-house-availability', async (request, reply) => {
 fastify.put('/profile/apartment-unit', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { street, external_number, number_of_people, full_name } = request.body as { 
+    const { street, external_number, number_of_people, full_name, fullName } = request.body as { 
       street?: string
       external_number?: string
       number_of_people?: number
       full_name?: string
+      fullName?: string
     }
 
     // Validate inputs
@@ -1715,7 +1716,8 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
       house = newHouse
     }
 
-    const trimmedFullName = typeof full_name === 'string' ? full_name.trim() : ''
+    const rawFullName = typeof full_name === 'string' ? full_name : fullName
+    const trimmedFullName = typeof rawFullName === 'string' ? rawFullName.trim() : ''
 
     // Update profile with house_id
     const profileUpdates: Record<string, any> = {
