@@ -1011,9 +1011,42 @@ fastify.get('/payment/status', async (request, reply) => {
     const currentDate = new Date()
     const currentMonth = currentDate.getMonth() + 1
     const currentYear = currentDate.getFullYear()
-    
-    // Próximo pago es el día 1 del próximo mes
-    const nextPaymentDate = new Date(currentYear, currentMonth, 1)
+    const dueDayRaw = (coloniaData?.payment_due_day as number | null | undefined)
+    const dueDay = Number.isFinite(dueDayRaw)
+      ? Math.min(Math.max(dueDayRaw as number, 1), 31)
+      : null
+
+    const currentDateStart = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth(),
+      currentDate.getDate()
+    )
+
+    const buildDueDate = (year: number, monthIndex: number, day: number) => {
+      const daysInMonth = new Date(year, monthIndex + 1, 0).getDate()
+      const safeDay = Math.min(day, daysInMonth)
+      return new Date(year, monthIndex, safeDay)
+    }
+
+    let nextPaymentDate: Date
+    if (dueDay) {
+      const dueThisMonth = buildDueDate(currentDate.getFullYear(), currentDate.getMonth(), dueDay)
+      nextPaymentDate = dueThisMonth < currentDateStart
+        ? buildDueDate(currentDate.getFullYear(), currentDate.getMonth() + 1, dueDay)
+        : dueThisMonth
+    } else {
+      // Fallback: día 1 del próximo mes
+      nextPaymentDate = new Date(currentYear, currentMonth, 1)
+    }
+
+    fastify.log.info({
+      coloniaId,
+      houseId,
+      payment_due_day: dueDayRaw,
+      computed_due_day: dueDay,
+      nextPaymentDue: nextPaymentDate.toISOString()
+    }, 'Payment due date computed')
+
     const daysUntilPayment = Math.ceil((nextPaymentDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24))
 
     // Verificar si ya pagó este mes
