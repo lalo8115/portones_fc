@@ -1039,13 +1039,6 @@ fastify.get('/payment/status', async (request, reply) => {
       nextPaymentDate = new Date(currentYear, currentMonth, 1)
     }
 
-    fastify.log.info({
-      coloniaId,
-      houseId,
-      payment_due_day: dueDayRaw,
-      computed_due_day: dueDay,
-      nextPaymentDue: nextPaymentDate.toISOString()
-    }, 'Payment due date computed')
 
     const daysUntilPayment = Math.ceil((nextPaymentDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24))
 
@@ -1915,6 +1908,7 @@ fastify.get('/forum/posts', async (request, reply) => {
         author_id,
         profiles:author_id (
           id,
+          full_name,
           house_id,
           houses:house_id (
             street,
@@ -1936,20 +1930,6 @@ fastify.get('/forum/posts', async (request, reply) => {
       return
     }
 
-    // Get author names from auth.users
-    const authorIds = posts?.map(p => p.author_id) || []
-    const uniqueAuthorIds = [...new Set(authorIds)]
-
-    const authorNames: Record<string, string> = {}
-    
-    for (const authorId of uniqueAuthorIds) {
-      const { data: userData } = await supabaseAdmin.auth.admin.getUserById(authorId)
-      const email = userData?.user?.email
-      if (email) {
-        authorNames[authorId] = String(email.split('@')[0] || email)
-      }
-    }
-
     // Format response
     const formattedPosts = posts?.map(post => {
       const profileData = (post as any).profiles
@@ -1959,6 +1939,11 @@ fastify.get('/forum/posts', async (request, reply) => {
       const authorAddress = houseData
         ? `${houseData.street} ${houseData.external_number}`
         : 'Dirección no disponible'
+      
+      const fullName = Array.isArray(profileData)
+        ? profileData[0]?.full_name
+        : profileData?.full_name
+      const authorName = typeof fullName === 'string' ? fullName.trim() : null
 
       return {
         id: post.id,
@@ -1971,7 +1956,7 @@ fastify.get('/forum/posts', async (request, reply) => {
         file_url: (post as any).file_url || null,
         file_month: (post as any).file_month || null,
         created_at: post.created_at,
-        author_name: authorNames[post.author_id] || 'Usuario',
+        author_name: authorName || 'Usuario',
         author_address: authorAddress,
         replies_count: 0 // For future implementation
       }
@@ -2040,7 +2025,7 @@ fastify.post('/forum/posts', async (request, reply) => {
     // Get user profile to verify colonia
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('colonia_id, house_id, role, houses!fk_profiles_house(street, external_number)')
+      .select('colonia_id, house_id, role, full_name, houses!fk_profiles_house(street, external_number)')
       .eq('id', user.id)
       .single()
 
@@ -2088,9 +2073,8 @@ fastify.post('/forum/posts', async (request, reply) => {
       return
     }
 
-    // Get author name
-    const { data: userData } = await supabaseAdmin.auth.admin.getUserById(user.id)
-    const authorName = userData?.user?.email?.split('@')[0] || 'Usuario'
+    // Get author name from profile
+    const authorName = profile.full_name || 'Usuario'
     
     // Format house address
     const houseData = (profile as any).houses
