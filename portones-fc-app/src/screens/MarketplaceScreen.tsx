@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import { Alert, ScrollView, TextInput, Modal, View, Image } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -34,9 +34,9 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
   const [coloniaId, setColoniaId] = useState<string | null>(null)
   const [itemImageIndices, setItemImageIndices] = useState<{ [itemId: number]: number }>({})
 
-  // Decrement MPS on screen entry
+  // Increment MPS on screen entry
   useEffect(() => {
-    const decrementMps = async () => {
+    const incrementMps = async () => {
       try {
         // Get current profile to get MPS value and colonia_id
         const profileResponse = await fetch(`${apiUrl}/profile`, {
@@ -56,19 +56,9 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
         setCurrentMps(currentMpsValue)
         setColoniaId(userColoniaId)
 
-        // Check if MPS is 0 or less
-        if (currentMpsValue <= 0) {
-          Alert.alert(
-            'Acceso limitado',
-            'Has alcanzado tu límite de sesiones del marketplace. Vuelve más tarde o contacta al administrador.',
-            [{ text: 'OK', onPress: onBack }]
-          )
-          return
-        }
-
-        // Decrement MPS
-        const newMpsValue = currentMpsValue - 1
-        const decrementResponse = await fetch(`${apiUrl}/profile/mps`, {
+        // Increment MPS
+        const newMpsValue = currentMpsValue + 1
+        const incrementResponse = await fetch(`${apiUrl}/profile/mps`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -77,21 +67,21 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
           body: JSON.stringify({ mps: newMpsValue })
         })
 
-        if (!decrementResponse.ok) {
+        if (!incrementResponse.ok) {
           throw new Error('No se pudo actualizar el contador de sesiones')
         }
 
         setCurrentMps(newMpsValue)
       } catch (error) {
-        console.error('Error decrementing MPS:', error)
+        console.error('Error incrementing MPS:', error)
         Alert.alert('Error', 'Hubo un problema al acceder al marketplace')
       } finally {
         setIsDecrementingMps(false)
       }
     }
 
-    decrementMps()
-  }, [])
+    incrementMps()
+  }, [apiUrl, authToken, onBack])
 
   const categories = useMemo(
     () => [
@@ -108,15 +98,15 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
     []
   )
 
-  const formatPrice = (value: number) => {
+  const formatPrice = useCallback((value: number) => {
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
       currency: 'MXN',
       maximumFractionDigits: 2
     }).format(value)
-  }
+  }, [])
 
-  const formatDate = (value: string) => {
+  const formatDate = useCallback((value: string) => {
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return value
     return date.toLocaleDateString('es-MX', {
@@ -124,7 +114,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
       month: 'short',
       day: 'numeric'
     })
-  }
+  }, [])
 
   const categoryLabel = (id: string) => categories.find((c) => c.id === id)?.label || 'Otros'
 
@@ -140,11 +130,11 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 0.8,
-        selectionLimit: 0
+        selectionLimit: 10
       })
 
       if (!result.canceled) {
-        setSelectedImages([...selectedImages, ...result.assets])
+        setSelectedImages(prev => [...prev, ...result.assets])
       }
     } catch (error) {
       Alert.alert('Error', 'No se pudo seleccionar las imágenes')
@@ -152,7 +142,21 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
   }
 
   const handleRemoveImage = (index: number) => {
-    setSelectedImages(selectedImages.filter((_, i) => i !== index))
+    setSelectedImages(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const getMimeType = (fileName: string): string => {
+    const ext = fileName?.split('.').pop()?.toLowerCase()
+    const mimeMap: { [key: string]: string } = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      heic: 'image/heic',
+      heif: 'image/heif'
+    }
+    return mimeMap[ext || ''] || 'image/jpeg'
   }
 
   const uploadImagesToSupabase = async (itemId: number): Promise<string[]> => {
@@ -180,6 +184,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
           : 'jpg'
         const fileName = `${i + 1}.${fileExtension}`
         const filePath = `${coloniaId}/${user.id}/${itemId}/${fileName}`
+        const mimeType = getMimeType(image.fileName || '')
 
         const response = await fetch(image.uri)
         const blob = await response.blob()
@@ -187,7 +192,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
         const { error: uploadError } = await supabase.storage
           .from('marketplace-files')
           .upload(filePath, blob, {
-            contentType: 'image/jpeg',
+            contentType: mimeType,
             upsert: false
           })
 
@@ -226,7 +231,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
     return response.json() as Promise<MarketplaceItem[]>
   }
 
-  const { data: items, isLoading, isFetching } = useQuery({
+  const { data: items, isLoading } = useQuery({
     queryKey: ['marketplace-items', selectedCategory],
     queryFn: fetchItems
   })
@@ -352,7 +357,8 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
       ) : (
         <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 16 }}>
         <YStack space='$4'>
-          {currentMps! > 0 && (
+          {currentMps && currentMps < 4 && (
+  
             <Card elevate size='$3.5' bordered padding='$4' backgroundColor='$green2'>
               <XStack space='$3' alignItems='center'>
                 <Circle size={44} backgroundColor='$green10' elevate>
@@ -371,11 +377,9 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
           )}
 
           <YStack space='$2'>
-            <XStack justifyContent='space-between' alignItems='center'>
-              <Text fontSize='$5' fontWeight='600'>
-                Categorías
-              </Text>
-            </XStack>
+            <Text fontSize='$5' fontWeight='600'>
+              Categorías
+            </Text>
             <XStack flexWrap='wrap' gap='$2'>
               {categories.map((category) => (
                 <Button
@@ -485,7 +489,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                                   e.stopPropagation?.()
                                   setItemImageIndices(prev => ({
                                     ...prev,
-                                    [item.id]: prev[item.id] > 0 ? prev[item.id] - 1 : imageArray.length - 1
+                                    [item.id]: (prev[item.id] || 0) > 0 ? (prev[item.id] || 0) - 1 : imageArray.length - 1
                                   }))
                                 }}
                               >
@@ -501,7 +505,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                                   e.stopPropagation?.()
                                   setItemImageIndices(prev => ({
                                     ...prev,
-                                    [item.id]: prev[item.id] < imageArray.length - 1 ? prev[item.id] + 1 : 0
+                                    [item.id]: (prev[item.id] || 0) < imageArray.length - 1 ? (prev[item.id] || 0) + 1 : 0
                                   }))
                                 }}
                               >
@@ -512,8 +516,8 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                         </YStack>
                       )}
                       
-                      <XStack justifyContent='space-between' alignItems='center'>
-                        <Text fontSize='$5' fontWeight='600'>
+                      <XStack justifyContent='space-between'>
+                        <Text fontSize='$5' fontWeight='600' width={300}>
                           {item.title}
                         </Text>
                         <Text fontSize='$4' color='$green10' fontWeight='700'>
@@ -521,9 +525,11 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                         </Text>
                       </XStack>
 
-                      <Text fontSize='$3' color='$gray11'>
-                        {item.description}
-                      </Text>
+                      <ScrollView scrollEnabled={true} style={{ maxHeight: 100 }} contentContainerStyle={{ flexGrow: 1 }}>
+                        <Text fontSize='$3' color='$gray11'>
+                          {item.description}
+                        </Text>
+                      </ScrollView>
 
                       <XStack justifyContent='space-between' alignItems='center'>
                         <Text fontSize='$2' color='$gray10'>
@@ -633,23 +639,34 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                   ) : null}
 
                   {/* Precio */}
-                  <YStack space='$2'>
-                    <Text fontSize='$3' color='$gray10'>
-                      Precio
-                    </Text>
-                    <Text fontSize='$6' color='$green10' fontWeight='700'>
-                      {formatPrice(Number(selectedItem?.price || 0))}
-                    </Text>
-                  </YStack>
-
+                  <XStack justifyContent="space-between" alignItems="center">
+                    <YStack space='$2'>
+                      <Text fontSize='$3' color='$gray10'>
+                        Precio
+                      </Text>
+                      <Text fontSize='$6' color='$green10' fontWeight='700'>
+                        {formatPrice(Number(selectedItem?.price || 0))}
+                      </Text>
+                    </YStack>
+                    <YStack space='$2'>
+                      <Text fontSize='$3' color='$gray10'>
+                        Categoría
+                      </Text>
+                      <Text fontSize='$4' fontWeight='500'>
+                        {categoryLabel(selectedItem?.category || 'other')}
+                      </Text>
+                    </YStack>
+                  </XStack>
                   {/* Descripción */}
-                  <YStack space='$2'>
+                  <YStack space='$2' maxHeight={100}>
                     <Text fontSize='$4' fontWeight='600'>
                       Descripción
                     </Text>
-                    <Text fontSize='$3' color='$gray11'>
-                      {selectedItem?.description}
-                    </Text>
+                    <ScrollView scrollEnabled={true} contentContainerStyle={{ flexGrow: 1 }}>
+                      <Text fontSize='$3' color='$gray11'>
+                        {selectedItem?.description}
+                      </Text>
+                    </ScrollView>
                   </YStack>
 
                   {/* Información del vendedor */}
@@ -680,16 +697,6 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                       </YStack>
                     </Card>
                   )}
-
-                  {/* Categoría */}
-                  <YStack space='$2'>
-                    <Text fontSize='$3' color='$gray10'>
-                      Categoría
-                    </Text>
-                    <Text fontSize='$4' fontWeight='500'>
-                      {categoryLabel(selectedItem?.category || 'other')}
-                    </Text>
-                  </YStack>
                 </YStack>
               </ScrollView>
 

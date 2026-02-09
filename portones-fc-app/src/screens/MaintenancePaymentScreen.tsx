@@ -22,7 +22,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
   onBack,
   onSuccess
 }) => {
-  const { user, profile, refreshProfile } = useAuth()
+  const { profile, refreshProfile } = useAuth()
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>({
     status: 'idle',
     message: ''
@@ -340,7 +340,7 @@ export const MaintenancePaymentScreen: React.FC<MaintenancePaymentScreenProps> =
                 Usuario
               </Text>
               <Text fontSize='$4' fontWeight='bold'>
-                {user?.email}
+                {profile?.full_name || 'Usuario'}
               </Text>
               {profile?.house && (
                 <Text fontSize='$3' color='$gray11'>

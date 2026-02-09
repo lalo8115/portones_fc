@@ -408,7 +408,7 @@ export const GateControl: React.FC<GateControlProps> = ({
       >
         <YStack space='$2'>
           <Text fontSize='$5' fontWeight='800' color='white'>
-            {user?.email}
+            {profile?.full_name || 'Usuario'}
           </Text>
 
           {profile?.colonia?.nombre && (
@@ -847,7 +847,7 @@ export const GateControl: React.FC<GateControlProps> = ({
         >
           <YStack space='$1' flex={1}>
             <Text fontSize='$4' fontWeight='600' color='$color'>
-              {user?.email}
+              {profile?.full_name || 'Usuario'}
             </Text>
 
             {profile?.colonia?.nombre && (

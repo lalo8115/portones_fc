@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { ScrollView, RefreshControl } from 'react-native'
 import { useQuery } from '@tanstack/react-query'
 import { YStack, XStack, Text, Spinner, Card, Circle, Button, Sheet } from 'tamagui'
-import { Clock, ChevronLeft, LogIn, LogOut as LogOutIcon, Calendar, User, Mail, Hash, Info, X } from '@tamagui/lucide-icons'
+import { Clock, ChevronLeft, LogIn, LogOut as LogOutIcon, Calendar, User, Hash, Info, X } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
 
 interface AccessRecord {
@@ -11,7 +11,7 @@ interface AccessRecord {
   gate_name: string
   gate_type: string
   user_id: string
-  user_email: string | null
+  user_name: string | null
   apartment_unit: string | null
   user_address?: string | null
   action: 'OPEN' | 'CLOSE'
@@ -440,17 +440,17 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                 </XStack>
 
                 {/* Usuario */}
-                {selectedRecord.user_email && (
+                {selectedRecord.user_name && (
                   <XStack space="$3" alignItems="center">
                     <Circle size={36} backgroundColor="$green3">
-                      <Mail size={18} color="$green10" />
+                      <User size={18} color="$green10" />
                     </Circle>
                     <YStack flex={1}>
                       <Text fontSize="$2" color="$gray11">
                         Usuario
                       </Text>
                       <Text fontSize="$3" fontWeight="600">
-                        {selectedRecord.user_email}
+                        {selectedRecord.user_name}
                       </Text>
                     </YStack>
                   </XStack>

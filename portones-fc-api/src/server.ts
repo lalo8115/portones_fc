@@ -328,27 +328,7 @@ fastify.get('/access/history', async (request, reply) => {
       throw gatesError
     }
 
-    // Get user emails from auth.users
-    const userIds = Array.from(
-      new Set((logs ?? []).map((log: any) => log.user_id).filter(Boolean))
-    )
-
-    let emailsMap = new Map<string, string>()
-    
-    if (userIds.length > 0) {
-      // Get emails from auth.users using admin client
-      const { data: usersData, error: usersError } = await supabaseAdmin.auth.admin.listUsers()
-      
-      if (!usersError && usersData?.users) {
-        usersData.users.forEach((authUser: any) => {
-          if (userIds.includes(authUser.id)) {
-            emailsMap.set(authUser.id, authUser.email || '')
-          }
-        })
-      }
-    }
-
-    let profilesMap = new Map<string, { house_address: string | null }>()
+    let profilesMap = new Map<string, { house_address: string | null; full_name: string | null }>()
 
     if (profile.role === 'admin') {
       const profileUserIds = Array.from(
@@ -358,7 +338,7 @@ fastify.get('/access/history', async (request, reply) => {
       if (profileUserIds.length) {
         const { data: profilesData, error: profilesError } = await supabaseAdmin
           .from('profiles')
-          .select('id, house_id, houses!fk_profiles_house(street, external_number)')
+          .select('id, full_name, house_id, houses!fk_profiles_house(street, external_number)')
           .in('id', profileUserIds)
 
         if (profilesError) {
@@ -368,7 +348,8 @@ fastify.get('/access/history', async (request, reply) => {
         profilesData?.forEach((p: any) => {
           const house = p.houses as any
           const address = house ? `${house.street} ${house.external_number}` : null
-          profilesMap.set(p.id, { house_address: address })
+          const fullName = typeof p.full_name === 'string' ? p.full_name : null
+          profilesMap.set(p.id, { house_address: address, full_name: fullName })
         })
       }
     } else {
@@ -376,7 +357,7 @@ fastify.get('/access/history', async (request, reply) => {
       if (allowedUserIds.length > 0) {
         const { data: profilesData, error: profilesError } = await supabaseAdmin
           .from('profiles')
-          .select('id, house_id, houses!fk_profiles_house(street, external_number)')
+          .select('id, full_name, house_id, houses!fk_profiles_house(street, external_number)')
           .in('id', allowedUserIds)
 
         if (profilesError) {
@@ -386,7 +367,8 @@ fastify.get('/access/history', async (request, reply) => {
         profilesData?.forEach((p: any) => {
           const house = p.houses as any
           const address = house ? `${house.street} ${house.external_number}` : null
-          profilesMap.set(p.id, { house_address: address })
+          const fullName = typeof p.full_name === 'string' ? p.full_name : null
+          profilesMap.set(p.id, { house_address: address, full_name: fullName })
         })
       }
     }
@@ -398,8 +380,8 @@ fastify.get('/access/history', async (request, reply) => {
 
     const records = (logs ?? []).map((log: any) => {
       const gateInfo = gatesMap.get(log.gate_id) || {}
-      const profileInfo = profilesMap.get(log.user_id) || { house_address: null }
-      const userEmail = emailsMap.get(log.user_id) || null
+      const profileInfo = profilesMap.get(log.user_id) || { house_address: null, full_name: null }
+      const userName = profileInfo.full_name?.trim() || 'Usuario'
 
       return {
       id: log.id,
@@ -407,7 +389,7 @@ fastify.get('/access/history', async (request, reply) => {
       gate_name: gateInfo.name || (log.gate_id ? `Portón ${log.gate_id}` : 'Portón'),
       gate_type: gateInfo.type || 'ENTRADA',
       user_id: log.user_id,
-      user_email: userEmail,
+      user_name: userName,
       house_address: profileInfo.house_address ?? null,
       action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
       timestamp: log.timestamp,
@@ -1125,6 +1107,7 @@ fastify.get('/profile', async (request, reply) => {
     reply.send({
       id: profile.id,
       email: user.email,
+      full_name: profile.full_name || null,
       marketplace_sessions:profile.mps,
       role: profile.role,
       house_id: profile.house_id,
@@ -1177,7 +1160,7 @@ fastify.post('/profile/colonia', async (request, reply) => {
       .from('profiles')
       .update({ colonia_id: colonia.id, updated_at: new Date().toISOString() })
       .eq('id', user.id)
-      .select('id, role, house_id, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
+      .select('id, full_name, role, house_id, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
       .single()
 
     if (updateError || !updatedProfile) {
@@ -1192,6 +1175,7 @@ fastify.post('/profile/colonia', async (request, reply) => {
     reply.send({
       id: updatedProfile.id,
       email: user.email,
+      full_name: updatedProfile.full_name || null,
       role: updatedProfile.role,
       house_id: updatedProfile.house_id,
       colonia_id: updatedProfile.colonia_id,
@@ -1646,10 +1630,11 @@ fastify.post('/profile/check-house-availability', async (request, reply) => {
 fastify.put('/profile/apartment-unit', async (request, reply) => {
   try {
     const user = (request as any).user
-    const { street, external_number, number_of_people } = request.body as { 
+    const { street, external_number, number_of_people, full_name } = request.body as { 
       street?: string
       external_number?: string
       number_of_people?: number
+      full_name?: string
     }
 
     // Validate inputs
@@ -1730,12 +1715,23 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
       house = newHouse
     }
 
+    const trimmedFullName = typeof full_name === 'string' ? full_name.trim() : ''
+
     // Update profile with house_id
+    const profileUpdates: Record<string, any> = {
+      house_id: house.id,
+      updated_at: new Date().toISOString()
+    }
+
+    if (trimmedFullName) {
+      profileUpdates.full_name = trimmedFullName
+    }
+
     const { data: updatedProfile, error: updateProfileError } = await supabaseAdmin
       .from('profiles')
-      .update({ house_id: house.id, updated_at: new Date().toISOString() })
+      .update(profileUpdates)
       .eq('id', user.id)
-      .select('id, role, house_id, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
+      .select('id, full_name, role, house_id, colonia_id, created_at, updated_at, colonias!fk_profiles_colonia(id, nombre)')
       .single()
 
     if (updateProfileError || !updatedProfile) {
@@ -1750,6 +1746,7 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
     reply.send({
       id: updatedProfile.id,
       email: user.email,
+      full_name: updatedProfile.full_name || null,
       role: updatedProfile.role,
       house_id: updatedProfile.house_id,
       colonia_id: updatedProfile.colonia_id,
@@ -1795,7 +1792,7 @@ fastify.put('/profile/mps', async (request, reply) => {
       .from('profiles')
       .update({ mps, updated_at: new Date().toISOString() })
       .eq('id', user.id)
-      .select('id, role, house_id, colonia_id, mps, created_at, updated_at')
+      .select('id, full_name, role, house_id, colonia_id, mps, created_at, updated_at')
       .single()
 
     if (updateError || !updatedProfile) {
@@ -1810,6 +1807,7 @@ fastify.put('/profile/mps', async (request, reply) => {
     reply.send({
       id: updatedProfile.id,
       email: user.email,
+      full_name: updatedProfile.full_name || null,
       role: updatedProfile.role,
       house_id: updatedProfile.house_id,
       colonia_id: updatedProfile.colonia_id,

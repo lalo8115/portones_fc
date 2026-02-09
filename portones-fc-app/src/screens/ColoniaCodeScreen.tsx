@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { YStack, XStack, Input, Button, Text, H2, Separator, Card, Select, Adapt, Sheet, Dialog } from 'tamagui'
 import { useAuth } from '../contexts/AuthContext'
 
 export const ColoniaCodeScreen: React.FC = () => {
-  const { getColoniaStreets, updateApartmentUnit, signOut, user, profile, checkHouseAvailability } = useAuth()
+  const { getColoniaStreets, updateApartmentUnit, signOut, profile, checkHouseAvailability } = useAuth()
+  const [fullName, setFullName] = useState('')
   const [code, setCode] = useState('')
   const [streets, setStreets] = useState<string[]>([])
   const [selectedStreet, setSelectedStreet] = useState('')
@@ -17,6 +18,13 @@ export const ColoniaCodeScreen: React.FC = () => {
   const [dialogMessage, setDialogMessage] = useState('')
   const [dialogType, setDialogType] = useState<'success' | 'error'>('success')
   const [remainingSpots, setRemainingSpots] = useState(0)
+  const displayName = profile?.full_name?.trim() || fullName.trim()
+
+  useEffect(() => {
+    if (profile?.full_name && !fullName) {
+      setFullName(profile.full_name)
+    }
+  }, [profile?.full_name, fullName])
 
   const handleValidateColonia = async () => {
     setError('')
@@ -48,6 +56,12 @@ export const ColoniaCodeScreen: React.FC = () => {
     setLoading(true)
 
     try {
+      if (!fullName.trim()) {
+        setError('El nombre es requerido')
+        setLoading(false)
+        return
+      }
+
       // Primero verificar si hay espacios disponibles
       const availability = await checkHouseAvailability(code.trim(), selectedStreet, externalNumber)
 
@@ -62,7 +76,7 @@ export const ColoniaCodeScreen: React.FC = () => {
       }
 
       // Si hay espacios disponibles, proceder con el registro
-      await updateApartmentUnit(selectedStreet, externalNumber, 1)
+      await updateApartmentUnit(selectedStreet, externalNumber, 1, fullName.trim())
       setSuccess(true)
       setRemainingSpots(availability.remainingSpots - 1)
       setDialogType('success')
@@ -91,9 +105,9 @@ export const ColoniaCodeScreen: React.FC = () => {
           <Text textAlign='center' color='$gray11'>
             Ingresa el código de la colonia que te compartió la administración.
           </Text>
-          {user?.email ? (
+          {displayName ? (
             <Text fontSize='$3' color='$blue10'>
-              {user.email}
+              {displayName}
             </Text>
           ) : null}
         </YStack>
@@ -104,6 +118,19 @@ export const ColoniaCodeScreen: React.FC = () => {
             <Text fontSize='$3' fontWeight='600' color='$gray12'>
               Paso 1: Validar Colonia
             </Text>
+            <YStack space='$2'>
+              <Text fontSize='$2' color='$gray11'>
+                Nombre completo:
+              </Text>
+              <Input
+                placeholder='Nombre de la persona'
+                value={fullName}
+                onChangeText={setFullName}
+                autoCapitalize='words'
+                autoCorrect={false}
+                size='$4'
+              />
+            </YStack>
             <XStack space='$2'>
               <Input
                 flex={1}
@@ -206,6 +233,7 @@ export const ColoniaCodeScreen: React.FC = () => {
                 onPress={handleConfirmAddress}
                 disabled={
                   loading ||
+                  !fullName.trim() ||
                   !selectedStreet.trim() ||
                   !externalNumber.trim()
                 }
