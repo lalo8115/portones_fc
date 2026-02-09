@@ -1718,6 +1718,10 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
 
     const rawFullName = typeof full_name === 'string' ? full_name : fullName
     const trimmedFullName = typeof rawFullName === 'string' ? rawFullName.trim() : ''
+    fastify.log.info({
+      has_full_name: !!trimmedFullName,
+      full_name_length: trimmedFullName.length
+    }, 'Apartment unit update payload name summary')
 
     // Update profile with house_id
     const profileUpdates: Record<string, any> = {
@@ -1744,6 +1748,10 @@ fastify.put('/profile/apartment-unit', async (request, reply) => {
       })
       return
     }
+
+    fastify.log.info({
+      saved_full_name: updatedProfile.full_name || null
+    }, 'Apartment unit update saved name')
 
     reply.send({
       id: updatedProfile.id,
