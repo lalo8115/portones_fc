@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react'
-import { ScrollView, View, Animated, PanResponder, Dimensions, Alert, Linking } from 'react-native'
+import React, { useState, useRef, useEffect } from 'react'
+import { ScrollView, View, Animated, PanResponder, Dimensions, Alert, Linking, Platform, Image } from 'react-native'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Button, YStack, Text, Spinner, Circle, XStack, Card } from 'tamagui'
-import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, Home, MapPin} from '@tamagui/lucide-icons'
+import { Button, YStack, Text, Spinner, Circle, XStack, Card, Input } from 'tamagui'
+import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, Home, MapPin, Camera } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
 import QRCode from 'react-native-qrcode-svg'
 import { CameraView, useCameraPermissions } from 'expo-camera'
@@ -16,6 +16,12 @@ import { QR_POLICIES } from '../constants/qrPolicies'
 import { PaymentStatusScreen } from './PaymentStatusScreen'
 import { AdminPanelScreen } from './AdminPanelScreen'
 import { AdminPaymentReportScreen } from './AdminPaymentReportScreen'
+import { createClient } from '@supabase/supabase-js'
+
+// Configuración única de Supabase (evita múltiples instancias)
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || ''
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
@@ -685,14 +691,162 @@ export const GateControl: React.FC<GateControlProps> = ({
     )
   }
 
+  // Componente de escáner QR para Web usando html5-qrcode
+  const WebQRScanner = ({ onScan, onReady, isProcessing }: { 
+    onScan: (data: string) => void; 
+    onReady: () => void;
+    isProcessing: boolean;
+  }) => {
+    const scannerRef = useRef<any>(null)
+    const [scannerReady, setScannerReady] = useState(false)
+    const [cameraStarted, setCameraStarted] = useState(false)
+    const hasScannedRef = useRef(false)
+
+    useEffect(() => {
+      // Importar dinámicamente html5-qrcode
+      let html5Qrcode: any = null
+
+      const initScanner = async () => {
+        try {
+          const { Html5Qrcode } = await import('html5-qrcode')
+          
+          console.log('🔧 Inicializando escáner HTML5...')
+          
+          html5Qrcode = new Html5Qrcode('qr-reader')
+          
+          // Iniciar cámara directamente
+          const config = { 
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0,
+            formatsToSupport: [0] // 0 = QR_CODE
+          }
+
+          html5Qrcode.start(
+            { facingMode: 'environment' }, // Usar cámara trasera si está disponible
+            config,
+            (decodedText: string, decodedResult: any) => {
+              // Evitar escaneos duplicados mientras procesa
+              if (!isProcessing && !hasScannedRef.current) {
+                hasScannedRef.current = true
+                console.log('✅ QR Code detected:', decodedText)
+                onScan(decodedText)
+                
+                // Reset después de 2 segundos
+                setTimeout(() => {
+                  hasScannedRef.current = false
+                }, 2000)
+              }
+            },
+            (errorMessage: string) => {
+              // Ignorar errores de escaneo continuos (NotFoundException es normal)
+              if (!errorMessage.includes('NotFoundException') && !errorMessage.includes('NotFoundError')) {
+                // Solo loggear si no es un error común
+              }
+            }
+          ).then(() => {
+            console.log('✅ Cámara iniciada correctamente')
+            setCameraStarted(true)
+            setScannerReady(true)
+            onReady()
+          }).catch((error: any) => {
+            console.error('❌ Error iniciando cámara:', error)
+            alert('Error al iniciar la cámara. Por favor, permite el acceso a la cámara en tu navegador.')
+          })
+
+          scannerRef.current = html5Qrcode
+        } catch (error) {
+          console.error('❌ Error inicializando escáner:', error)
+        }
+      }
+
+      // Pequeño delay para asegurar que el DOM está listo
+      const timeout = setTimeout(() => {
+        initScanner()
+      }, 100)
+
+      return () => {
+        clearTimeout(timeout)
+        if (scannerRef.current) {
+          scannerRef.current.stop().catch((error: any) => {
+            console.error('Error deteniendo escáner:', error)
+          })
+        }
+      }
+    }, []) // Solo ejecutar una vez al montar
+
+    // Renderizar directamente HTML para web
+    if (Platform.OS === 'web') {
+      return (
+        // @ts-ignore - JSX intrinsic element
+        <div 
+          style={{ 
+            width: '100%', 
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: '#1a1a1a',
+            overflow: 'auto'
+          }}
+        >
+          <div id="qr-reader" style={{ width: '100%' }} />
+        </div>
+      )
+    }
+
+    return null
+  }
+
   // Componente para escanear QR de visitantes
   const QRScannerScreen = () => {
     const [permission, requestPermission] = useCameraPermissions()
     const [isProcessing, setIsProcessing] = useState(false)
     const [resultMessage, setResultMessage] = useState<string | null>(null)
     const [showResultDialog, setShowResultDialog] = useState(false)
+    const [debugLogs, setDebugLogs] = useState<string[]>([])
+    const [manualCode, setManualCode] = useState('')
+    const [scanAttempts, setScanAttempts] = useState(0)
+    const [cameraReady, setCameraReady] = useState(false)
+
+    const addLog = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString()
+      const logMessage = `[${timestamp}] ${message}`
+      console.log(logMessage)
+      setDebugLogs(prev => [...prev.slice(-15), logMessage])
+    }
+
+    // Log cuando el componente se monta
+    useEffect(() => {
+      addLog('📦 QRScannerScreen montado')
+      addLog(`🔧 Plataforma: ${Platform.OS}`)
+      if (Platform.OS === 'web') {
+        addLog('🌐 Detectado: Ejecutando en navegador web')
+        addLog('⚠️ expo-camera NO soporta escaneo en web')
+        addLog('🔄 Usando html5-qrcode para web...')
+      }
+      return () => {
+        addLog('🛑 QRScannerScreen desmontado')
+      }
+    }, [])
+
+    // Log permission status changes
+    useEffect(() => {
+      if (!permission) {
+        addLog('Esperando permisos de cámara...')
+      } else if (!permission.granted) {
+        addLog('⚠️ Permiso de cámara no concedido')
+      } else if (permission.granted) {
+        addLog('✅ Permiso de cámara concedido - Escaner ACTIVO')
+        addLog('🔍 Esperando códigos QR...')
+        addLog('👉 Tipos habilitados: QR, Code128, Code39, EAN13, EAN8')
+      }
+    }, [permission?.granted])
 
     if (!permission) {
+      // En web, no esperar permisos de expo-camera
+      if (Platform.OS === 'web') {
+        return null // Continuar renderizando
+      }
       return (
         <YStack flex={1} justifyContent='center' alignItems='center' padding='$4'>
           <Spinner size='large' />
@@ -701,7 +855,7 @@ export const GateControl: React.FC<GateControlProps> = ({
       )
     }
 
-    if (!permission.granted) {
+    if (!permission.granted && Platform.OS !== 'web') {
       return (
         <YStack flex={1} justifyContent='center' alignItems='center' padding='$4' space='$4'>
           <Text fontSize='$6' fontWeight='bold' textAlign='center'>
@@ -720,9 +874,20 @@ export const GateControl: React.FC<GateControlProps> = ({
       )
     }
 
-    const handleBarCodeScanned = async ({ data }: { data: string }) => {
-      if (isProcessing) return
+    const handleBarCodeScanned = async ({ data, type }: { data: string; type: string }) => {
+      // Log INMEDIATAMENTE para saber si se llama
+      const scanCount = scanAttempts + 1
+      setScanAttempts(scanCount)
+      addLog(`⚡⚡⚡ BARCODE DETECTED! Intento #${scanCount}`)
+      addLog(`📊 Tipo: ${type}`)
+      addLog(`📋 Data completa: ${data}`)
+      
+      if (isProcessing) {
+        addLog('⏳ Ya procesando otro código, ignorando...')
+        return
+      }
 
+      addLog(`👉 Iniciando procesamiento...`)
       setIsProcessing(true)
 
       try {
@@ -730,15 +895,19 @@ export const GateControl: React.FC<GateControlProps> = ({
         let qrData
         try {
           qrData = JSON.parse(data)
+          addLog(`📋 Datos parseados: ${JSON.stringify(qrData)}`)
         } catch {
           qrData = { code: data }
+          addLog('📋 Datos sin parsear, usando código directo')
         }
 
         const shortCode = qrData.code || data
+        addLog(`🔑 Código corto: ${shortCode}`)
         
         // Llamar directamente sin seleccionar portón
         await openGateWithQR(shortCode)
       } catch (error) {
+        addLog(`❌ Error: ${error instanceof Error ? error.message : 'Desconocido'}`)
         setResultMessage('❌ Código QR inválido')
         setShowResultDialog(true)
         setIsProcessing(false)
@@ -747,6 +916,7 @@ export const GateControl: React.FC<GateControlProps> = ({
 
     const openGateWithQR = async (shortCode: string) => {
       try {
+        addLog(`🌐 Enviando petición al servidor...`)
         const response = await fetch(`${apiUrl}/gate/open-with-qr`, {
           method: 'POST',
           headers: {
@@ -756,21 +926,44 @@ export const GateControl: React.FC<GateControlProps> = ({
           body: JSON.stringify({ shortCode })
         })
 
+        addLog(`📡 Respuesta recibida: ${response.status}`)
         const data = await response.json()
 
         if (!response.ok) {
+          addLog(`❌ Error del servidor: ${data.message}`)
           throw new Error(data.message || 'Error al abrir portón')
         }
 
+        addLog(`✅ Portón abierto exitosamente`)
         setResultMessage(
           `✅ Portón Abierto\n\n${data.gateName || 'Portón'}\n${data.visitor?.name || 'Visitante'}\n${data.visitor?.action || ''}\n\nEstado: ${data.visitor?.status === 'inside' ? 'Dentro' : 'Fuera'}\nVisitas restantes: ${data.visitor?.remainingVisits}`
         )
         setShowResultDialog(true)
       } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'No se pudo abrir el portón'
+        addLog(`❌ Error: ${errorMsg}`)
         setResultMessage(
-          `❌ Error\n\n${error instanceof Error ? error.message : 'No se pudo abrir el portón'}`
+          `❌ Error\n\n${errorMsg}`
         )
         setShowResultDialog(true)
+      }
+    }
+
+    const handleManualCode = async () => {
+      if (!manualCode.trim()) {
+        addLog('⚠️ Código vacío')
+        return
+      }
+      
+      addLog(`⌨️ Código manual ingresado: ${manualCode}`)
+      setIsProcessing(true)
+      
+      try {
+        await openGateWithQR(manualCode.trim())
+      } catch (error) {
+        addLog(`❌ Error: ${error instanceof Error ? error.message : 'Desconocido'}`)
+      } finally {
+        setManualCode('')
       }
     }
 
@@ -811,40 +1004,92 @@ export const GateControl: React.FC<GateControlProps> = ({
         </XStack>
 
         {/* Camera View */}
-        <YStack flex={1} position='relative'>
-          <CameraView
-            style={{ flex: 1 }}
-            facing='back'
-            onBarcodeScanned={isProcessing ? undefined : handleBarCodeScanned}
-            barcodeScannerSettings={{
-              barcodeTypes: ['qr']
-            }}
-          />
-
-          {/* Overlay con guía de escaneo */}
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              justifyContent: 'center',
-              alignItems: 'center'
-            }}
-          >
-            <View
-              style={{
-                width: 250,
-                height: 250,
-                borderWidth: 2,
-                borderColor: 'rgba(255, 255, 255, 0.5)',
-                borderRadius: 16,
-                backgroundColor: 'transparent'
+        <YStack flex={1} position='relative' backgroundColor='$background'>
+          {Platform.OS === 'web' ? (
+            /* Web: Use HTML5 QR Code Scanner */
+            <WebQRScanner
+              onScan={(data) => {
+                const scanCount = scanAttempts + 1
+                setScanAttempts(scanCount)
+                addLog(`⚡⚡⚡ QR DETECTADO EN WEB! #${scanCount}`)
+                addLog(`📋 Data: ${data}`)
+                handleBarCodeScanned({ data, type: 'qr' })
+              }}
+              onReady={() => {
+                setCameraReady(true)
+                addLog('✅ Escáner web listo')
+              }}
+              isProcessing={isProcessing}
+            />
+          ) : (
+            /* Native: Use expo-camera */
+            <CameraView
+              style={{ flex: 1 }}
+              facing='back'
+              onBarcodeScanned={handleBarCodeScanned}
+              barcodeScannerSettings={{
+                barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8']
+              }}
+              onCameraReady={() => {
+                setCameraReady(true)
+                addLog('🎥 Cámara nativa lista')
               }}
             />
-          </View>
+          )}
 
+          {/* Scan attempts counter - Solo en native */}
+          {Platform.OS !== 'web' && (
+            <View
+              style={{
+                position: 'absolute',
+                top: 10,
+                left: 10,
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                padding: 10,
+                borderRadius: 8,
+                minWidth: 180
+              }}
+            >
+              <Text color='lime' fontSize='$4' fontWeight='bold'>
+                ⚡ Detecciones: {scanAttempts}
+              </Text>
+              <Text color='white' fontSize='$2'>
+                🎥 Cámara: {cameraReady ? '✅ Lista' : '⏳ Iniciando...'}
+              </Text>
+              <Text color='white' fontSize='$2'>
+                {isProcessing ? '🔒 Procesando...' : '🔓 Esperando QR...'}
+              </Text>
+            </View>
+          )}
+
+          {/* Overlay con guía de escaneo - Solo en native */}
+          {Platform.OS !== 'web' && (
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                justifyContent: 'center',
+                alignItems: 'center',
+                pointerEvents: 'none'
+              }}
+            >
+              <View
+                style={{
+                  width: 250,
+                  height: 250,
+                  borderWidth: 2,
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  borderRadius: 16,
+                  backgroundColor: 'transparent'
+                }}
+              />
+            </View>
+          )}
+
+          {/* Processing Overlay */}
           {isProcessing && (
             <View
               style={{
@@ -905,14 +1150,49 @@ export const GateControl: React.FC<GateControlProps> = ({
           </View>
         )}
 
-        {/* Footer con instrucciones */}
-        <YStack padding='$4' backgroundColor='$background' space='$2'>
-          <Text fontSize='$3' textAlign='center' color='$gray11'>
-            Coloca el código QR dentro del marco
+        {/* Manual Input */}
+        <YStack padding='$4' backgroundColor='$background' space='$3' borderTopWidth={1} borderTopColor='$gray5'>
+          <Text fontSize='$3' fontWeight='bold' textAlign='center'>
+            Entrada Manual
           </Text>
-          <Text fontSize='$2' textAlign='center' color='$gray10'>
-            El escaneo es automático
+          <XStack space='$2'>
+            <Input
+              flex={1}
+              size='$4'
+              placeholder='Ingresa código QR'
+              value={manualCode}
+              onChangeText={setManualCode}
+              keyboardType='default'
+              color='white'
+              placeholderTextColor='$gray10'
+            />
+            <Button
+              size='$4'
+              onPress={handleManualCode}
+              disabled={isProcessing || !manualCode.trim()}
+              theme='blue'
+            >
+              <Text fontWeight='600'>Abrir</Text>
+            </Button>
+          </XStack>
+        </YStack>
+
+        {/* Debug Logs */}
+        <YStack padding='$4' backgroundColor='$gray2' maxHeight={200} borderTopWidth={1} borderTopColor='$gray5'>
+          <Text fontSize='$3' fontWeight='bold' marginBottom='$2'>
+            📋 Logs de Debug
           </Text>
+          <ScrollView style={{ flex: 1 }}>
+            {debugLogs.length === 0 ? (
+              <Text fontSize='$2' color='$gray10'>Sin logs aún...</Text>
+            ) : (
+              debugLogs.map((log, index) => (
+                <Text key={index} fontSize='$2' color='$gray11' fontFamily='$mono'>
+                  {log}
+                </Text>
+              ))
+            )}
+          </ScrollView>
         </YStack>
       </YStack>
     )
@@ -925,6 +1205,8 @@ export const GateControl: React.FC<GateControlProps> = ({
     const [idPhotoUrl, setIdPhotoUrl] = useState<string | null>(null)
     const [generatedQR, setGeneratedQR] = useState<any>(null)
     const [isGenerating, setIsGenerating] = useState(false)
+    const [uploadingImage, setUploadingImage] = useState(false)
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
     
     // Nuevos estados para formularios específicos
     const [companyName, setCompanyName] = useState('') // Para servicios
@@ -938,6 +1220,88 @@ export const GateControl: React.FC<GateControlProps> = ({
     // Políticas de QR (importadas desde configuración centralizada)
     const qrPolicies = QR_POLICIES
 
+    // Función para seleccionar/capturar imagen
+    const pickImage = () => {
+      if (Platform.OS !== 'web') {
+        Alert.alert('Error', 'Esta funcionalidad solo está disponible en navegador web')
+        return
+      }
+
+      // Crear input file oculto
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/jpeg,image/png,image/jpg'
+      // No usar capture para que el usuario elija entre cámara/galería
+      
+      input.onchange = async (e: any) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        
+        // Validar tamaño (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+          Alert.alert('Error', 'La imagen es muy grande. Máximo 5MB.')
+          return
+        }
+        
+        // Validar tipo
+        if (!['image/jpeg', 'image/png', 'image/jpg'].includes(file.type)) {
+          Alert.alert('Error', 'Solo se permiten imágenes JPG o PNG.')
+          return
+        }
+        
+        // Crear preview local usando FileReader
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          setImagePreviewUrl(event.target?.result as string)
+        }
+        reader.readAsDataURL(file)
+        
+        // Subir a Supabase en background
+        await uploadImageToSupabase(file)
+      }
+      
+      input.click() // Abre selector nativo del teléfono
+    }
+
+    // Función para subir imagen a Supabase
+    const uploadImageToSupabase = async (file: File) => {
+      setUploadingImage(true)
+      try {
+        // Generar nombre único: {userId}/{timestamp}-{random}.extension
+        const timestamp = Date.now()
+        const random = Math.random().toString(36).substring(7)
+        const extension = file.name.split('.').pop()
+        const fileName = `${user?.id}/${timestamp}-${random}.${extension}`
+        
+        // Subir archivo
+        const { data, error } = await supabase.storage
+          .from('ine-photos')
+          .upload(fileName, file, {
+            contentType: file.type,
+            upsert: false
+          })
+        
+        if (error) {
+          console.error('Supabase upload error:', error)
+          throw error
+        }
+        
+        // Obtener URL pública
+        const { data: urlData } = supabase.storage
+          .from('ine-photos')
+          .getPublicUrl(fileName)
+        
+        setIdPhotoUrl(urlData.publicUrl)
+        Alert.alert('Éxito', 'Foto cargada correctamente')
+      } catch (error) {
+        console.error('Error uploading image:', error)
+        Alert.alert('Error', 'No se pudo subir la imagen. Intenta de nuevo.')
+        setImagePreviewUrl(null)
+      } finally {
+        setUploadingImage(false)
+      }
+    }
+
     const handleGenerateQR = async () => {
       if (!selectedPolicy) return
 
@@ -947,51 +1311,113 @@ export const GateControl: React.FC<GateControlProps> = ({
       // Validaciones específicas por tipo
       if (policy.id === 'family') {
         if (!visitorName.trim()) {
-          Alert.alert('Campo requerido', 'Por favor ingresa el nombre del familiar')
+          Alert.alert('❌ Campo requerido', 'Por favor ingresa el nombre del familiar')
+          return
+        }
+        if (visitorName.trim().length < 3) {
+          Alert.alert('❌ Nombre muy corto', 'El nombre debe tener al menos 3 caracteres')
+          return
+        }
+        if (visitorName.trim().length > 100) {
+          Alert.alert('❌ Nombre muy largo', 'El nombre no puede exceder 100 caracteres')
           return
         }
         if (!idPhotoUrl) {
-          Alert.alert('ID requerido', 'Por favor carga una foto de la identificación')
+          Alert.alert('📷 ID requerido', 'Por favor carga una foto de la identificación oficial (INE, pasaporte, etc.)\n\nEsto es requerido para QRs de familiares.')
           return
         }
       }
 
       if (policy.id === 'friend') {
         if (!visitorName.trim()) {
-          Alert.alert('Campo requerido', 'Por favor ingresa el nombre del amigo')
+          Alert.alert('❌ Campo requerido', 'Por favor ingresa el nombre del amigo')
+          return
+        }
+        if (visitorName.trim().length < 3) {
+          Alert.alert('❌ Nombre muy corto', 'El nombre debe tener al menos 3 caracteres')
+          return
+        }
+        if (visitorName.trim().length > 100) {
+          Alert.alert('❌ Nombre muy largo', 'El nombre no puede exceder 100 caracteres')
+          return
+        }
+        // Validar que la fecha no sea en el pasado
+        const todayStart = new Date()
+        todayStart.setHours(0, 0, 0, 0)
+        const visitDateStart = new Date(friendVisitDate)
+        visitDateStart.setHours(0, 0, 0, 0)
+        if (visitDateStart < todayStart) {
+          Alert.alert('📅 Fecha inválida', 'La fecha de visita no puede ser en el pasado')
           return
         }
       }
 
       if (policy.id === 'delivery_app') {
         if (!appName.trim()) {
-          Alert.alert('Campo requerido', 'Por favor ingresa el nombre de la aplicación')
+          Alert.alert('❌ Campo requerido', 'Por favor ingresa el nombre de la aplicación de delivery\n\nEjemplo: Uber Eats, Rappi, DiDi Food')
+          return
+        }
+        if (appName.trim().length < 3) {
+          Alert.alert('❌ Nombre muy corto', 'El nombre debe tener al menos 3 caracteres')
           return
         }
       }
 
       if (policy.id === 'parcel') {
         if (!appName.trim()) {
-          Alert.alert('Campo requerido', 'Por favor ingresa el nombre de la paquetería')
+          Alert.alert('❌ Campo requerido', 'Por favor ingresa el nombre de la paquetería\n\nEjemplo: DHL, FedEx, Estafeta, Redpack')
+          return
+        }
+        if (appName.trim().length < 3) {
+          Alert.alert('❌ Nombre muy corto', 'El nombre debe tener al menos 3 caracteres')
           return
         }
         if (deliveryDateEnd < deliveryDateStart) {
-          Alert.alert('Fechas inválidas', 'La fecha de fin debe ser posterior a la fecha de inicio')
+          Alert.alert('📅 Fechas inválidas', 'La fecha de fin debe ser igual o posterior a la fecha de inicio')
+          return
+        }
+        // Validar que no sea en el pasado
+        const todayStart = new Date()
+        todayStart.setHours(0, 0, 0, 0)
+        const startDate = new Date(deliveryDateStart)
+        startDate.setHours(0, 0, 0, 0)
+        if (startDate < todayStart) {
+          Alert.alert('📅 Fecha inválida', 'La fecha de inicio no puede ser en el pasado')
+          return
+        }
+        // Validar que el rango no exceda 30 días
+        const daysDiff = Math.ceil((deliveryDateEnd.getTime() - deliveryDateStart.getTime()) / (1000 * 60 * 60 * 24))
+        if (daysDiff > 30) {
+          Alert.alert('⚠️ Rango muy amplio', 'El rango de fechas no puede exceder 30 días')
           return
         }
       }
 
       if (policy.id === 'service') {
         if (!companyName.trim() || !visitorName.trim()) {
-          Alert.alert('Campos requeridos', 'Por favor ingresa el nombre de la empresa y del visitante')
+          Alert.alert('❌ Campos requeridos', 'Por favor ingresa el nombre de la empresa y del profesional')
+          return
+        }
+        if (companyName.trim().length < 3) {
+          Alert.alert('❌ Nombre muy corto', 'El nombre de la empresa debe tener al menos 3 caracteres')
+          return
+        }
+        if (visitorName.trim().length < 3) {
+          Alert.alert('❌ Nombre muy corto', 'El nombre del profesional debe tener al menos 3 caracteres')
           return
         }
         if (!idPhotoUrl) {
-          Alert.alert('ID requerido', 'Por favor carga una foto de la identificación')
+          Alert.alert('📷 ID requerido', 'Por favor carga una foto de la identificación del profesional (INE, credencial, etc.)\n\nEsto es requerido para prestadores de servicios.')
           return
         }
         if (serviceDuration < 1 || serviceDuration > 12) {
-          Alert.alert('Duración inválida', 'La duración debe ser entre 1 y 12 horas')
+          Alert.alert('⏱️ Duración inválida', 'La duración del servicio debe ser entre 1 y 12 horas')
+          return
+        }
+        // Validar que no sea en el pasado
+        const now = new Date()
+        if (serviceDate < now) {
+          Alert.alert('📅 Fecha inválida', 'La fecha y hora del servicio no puede ser en el pasado')
           return
         }
       }
@@ -1046,20 +1472,57 @@ export const GateControl: React.FC<GateControlProps> = ({
 
         if (!response.ok) {
           const error = await response.json()
-          throw new Error(error.message || 'Error al generar QR')
+          
+          // Manejar errores específicos del servidor
+          if (response.status === 400) {
+            // Error 400: límite de QRs, validación, etc.
+            if (error.message && error.message.includes('máximo')) {
+              // Límite de QRs alcanzado
+              Alert.alert(
+                '🚫 Límite alcanzado',
+                error.message + '\n\nPuedes eliminar QRs antiguos o esperar a que expiren para generar nuevos.',
+                [
+                  { text: 'Entendido', style: 'default' },
+                  { text: 'Ver mis QRs', onPress: () => setCurrentView('qr-management'), style: 'cancel' }
+                ]
+              )
+            } else {
+              Alert.alert('⚠️ Validación', error.message || 'No se pudo generar el QR')
+            }
+          } else if (response.status === 403) {
+            Alert.alert('🔒 Acceso denegado', error.message || 'No tienes permisos para generar QRs')
+          } else if (response.status === 500) {
+            Alert.alert('❌ Error del servidor', 'Ocurrió un error al procesar tu solicitud. Por favor intenta de nuevo.')
+          } else {
+            Alert.alert('❌ Error', error.message || 'Error al generar QR')
+          }
+          return
         }
 
         const data = await response.json()
         setGeneratedQR(data.qrCode)
 
+        // Mostrar mensaje de éxito
+        Alert.alert(
+          '✅ QR Generado',
+          `QR creado exitosamente para: ${policy.description}\n\nCódigo: ${data.qrCode.shortCode}`,
+          [{ text: 'OK' }]
+        )
+
         // Limpiar formulario
         setVisitorName('')
         setIdPhotoUrl(null)
+        setImagePreviewUrl(null)
         setCompanyName('')
         setAppName('')
         setServiceDuration(4)
       } catch (error) {
-        Alert.alert('Error', error instanceof Error ? error.message : 'No se pudo generar el QR')
+        console.error('Error generating QR:', error)
+        Alert.alert(
+          '❌ Error de conexión',
+          'No se pudo conectar con el servidor. Verifica tu conexión a internet e intenta de nuevo.',
+          [{ text: 'OK' }]
+        )
       } finally {
         setIsGenerating(false)
       }
@@ -1174,6 +1637,7 @@ export const GateControl: React.FC<GateControlProps> = ({
                   setSelectedPolicy(null)
                   setVisitorName('')
                   setIdPhotoUrl(null)
+                  setImagePreviewUrl(null)
                   setCompanyName('')
                   setAppName('')
                 }
@@ -1292,19 +1756,53 @@ export const GateControl: React.FC<GateControlProps> = ({
                       <Text fontSize='$3' fontWeight='600'>
                         Foto de Identificación <Text color='$red10'>*</Text>
                       </Text>
+                      
+                      {/* Vista previa de imagen */}
+                      {imagePreviewUrl && (
+                        <Card padding='$2' backgroundColor='$gray2' borderRadius='$3' marginBottom='$2'>
+                          <Image
+                            source={{ uri: imagePreviewUrl }}
+                            style={{ 
+                              width: '100%', 
+                              height: 200, 
+                              borderRadius: 8
+                            }}
+                            resizeMode='cover'
+                          />
+                        </Card>
+                      )}
+                      
+                      {/* Botón de carga */}
                       <Button
                         size='$4'
-                        theme={idPhotoUrl ? 'green' : 'gray'}
-                        onPress={() => {
-                          Alert.alert('Carga de ID', 'Funcionalidad de carga de foto pendiente de implementar')
-                        }}
+                        theme={imagePreviewUrl ? 'gray' : 'blue'}
+                        onPress={pickImage}
+                        disabled={uploadingImage}
+                        icon={uploadingImage ? undefined : <Camera size={18} />}
                       >
-                        <Text fontWeight='600'>
-                          {idPhotoUrl ? '✓ ID Cargado' : '📷 Cargar Foto de ID'}
-                        </Text>
+                        {uploadingImage ? (
+                          <XStack space='$2' alignItems='center'>
+                            <Spinner size='small' color='white' />
+                            <Text color='white'>Subiendo...</Text>
+                          </XStack>
+                        ) : (
+                          <Text color='white' fontWeight='600'>
+                            {imagePreviewUrl ? '✓ Cambiar Foto' : '📷 Tomar/Subir Foto'}
+                          </Text>
+                        )}
                       </Button>
-                      <Text fontSize='$2' color='$gray11'>
-                        Se requiere INE, pasaporte o identificación oficial
+                      
+                      {/* Badge de confirmación */}
+                      {idPhotoUrl && !uploadingImage && (
+                        <Card size='$2' backgroundColor='$green2' padding='$2'>
+                          <Text fontSize='$2' color='$green11' textAlign='center' fontWeight='600'>
+                            ✓ Identificación cargada correctamente
+                          </Text>
+                        </Card>
+                      )}
+                      
+                      <Text fontSize='$2' color='$gray10' textAlign='center'>
+                        Foto clara de INE, pasaporte o identificación oficial
                       </Text>
                     </YStack>
                   </YStack>
@@ -1524,19 +2022,53 @@ export const GateControl: React.FC<GateControlProps> = ({
                       <Text fontSize='$3' fontWeight='600'>
                         Foto de Identificación <Text color='$red10'>*</Text>
                       </Text>
+                      
+                      {/* Vista previa de imagen */}
+                      {imagePreviewUrl && (
+                        <Card padding='$2' backgroundColor='$gray2' borderRadius='$3' marginBottom='$2'>
+                          <Image
+                            source={{ uri: imagePreviewUrl }}
+                            style={{ 
+                              width: '100%', 
+                              height: 200, 
+                              borderRadius: 8
+                            }}
+                            resizeMode='cover'
+                          />
+                        </Card>
+                      )}
+                      
+                      {/* Botón de carga */}
                       <Button
                         size='$4'
-                        theme={idPhotoUrl ? 'green' : 'gray'}
-                        onPress={() => {
-                          Alert.alert('Carga de ID', 'Funcionalidad de carga de foto pendiente de implementar')
-                        }}
+                        theme={imagePreviewUrl ? 'gray' : 'blue'}
+                        onPress={pickImage}
+                        disabled={uploadingImage}
+                        icon={uploadingImage ? undefined : <Camera size={18} />}
                       >
-                        <Text fontWeight='600'>
-                          {idPhotoUrl ? '✓ ID Cargado' : '📷 Cargar Foto de ID'}
-                        </Text>
+                        {uploadingImage ? (
+                          <XStack space='$2' alignItems='center'>
+                            <Spinner size='small' color='white' />
+                            <Text color='white'>Subiendo...</Text>
+                          </XStack>
+                        ) : (
+                          <Text color='white' fontWeight='600'>
+                            {imagePreviewUrl ? '✓ Cambiar Foto' : '📷 Tomar/Subir Foto'}
+                          </Text>
+                        )}
                       </Button>
-                      <Text fontSize='$2' color='$gray11'>
-                        Se requiere INE, pasaporte o identificación oficial
+                      
+                      {/* Badge de confirmación */}
+                      {idPhotoUrl && !uploadingImage && (
+                        <Card size='$2' backgroundColor='$green2' padding='$2'>
+                          <Text fontSize='$2' color='$green11' textAlign='center' fontWeight='600'>
+                            ✓ Identificación cargada correctamente
+                          </Text>
+                        </Card>
+                      )}
+                      
+                      <Text fontSize='$2' color='$gray10' textAlign='center'>
+                        Foto clara de INE, pasaporte o identificación oficial
                       </Text>
                     </YStack>
 
@@ -1644,6 +2176,7 @@ export const GateControl: React.FC<GateControlProps> = ({
                 setGeneratedQR(null)
                 setVisitorName('')
                 setIdPhotoUrl(null)
+                setImagePreviewUrl(null)
               }}
             >
               Generar Otro QR

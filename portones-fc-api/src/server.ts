@@ -1646,7 +1646,7 @@ const QR_POLICIES = {
   },
   family: {
     duration: 365 * 24 * 60 * 60 * 1000, // 1 año
-    maxUses: 1000, // 500 visitas
+    maxUses: 500, // 250 visitas (entrada + salida)
     requiresId: true,
     requiresName: true,
     description: 'Familiar',
@@ -1872,18 +1872,24 @@ fastify.get('/qr/list', async (request, reply) => {
     const enrichedQRs = qrCodes?.map((qr: any) => {
       const now = new Date()
       const expiresAt = new Date(qr.expires_at)
+      const validFrom = qr.valid_from ? new Date(qr.valid_from) : null
       const isExpired = expiresAt < now
       const isFullyUsed = qr.uses >= qr.max_uses
       const isVisitorInside = qr.uses % 2 === 1
       const remainingVisits = Math.floor((qr.max_uses - qr.uses) / 2)
+      const isScheduled = validFrom && validFrom > now
       
       // Determine effective status
       let effectiveStatus = qr.status
       if (qr.status === 'active') {
-        if (isExpired) {
-          effectiveStatus = 'expired'
+        if (isScheduled) {
+          // QR programado que aún no inicia su período de validez
+          effectiveStatus = 'scheduled'
         } else if (isFullyUsed) {
+          // Priorizar "completado" sobre "expirado" cuando se agotaron las visitas
           effectiveStatus = 'completed'
+        } else if (isExpired) {
+          effectiveStatus = 'expired'
         }
       }
 
@@ -1899,7 +1905,8 @@ fastify.get('/qr/list', async (request, reply) => {
         usedVisits: Math.floor(qr.uses / 2),
         policyDescription: policyInfo?.description || qr.rubro,
         isExpired,
-        isFullyUsed
+        isFullyUsed,
+        isScheduled
       }
     }) || []
 
@@ -2089,6 +2096,24 @@ fastify.post('/qr/force-exit', async (request, reply) => {
       return
     }
 
+    // Check if QR is in valid state
+    if (qrCode.status !== 'active') {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'QR code is not active'
+      })
+      return
+    }
+
+    // Check if QR has started its validity period
+    if (qrCode.valid_from && new Date(qrCode.valid_from) > new Date()) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'QR code is not yet valid'
+      })
+      return
+    }
+
     // Check if visitor is actually inside (odd uses count)
     const isVisitorInside = qrCode.uses % 2 === 1
 
@@ -2189,6 +2214,15 @@ fastify.post('/gate/open-with-qr', async (request, reply) => {
       reply.status(403).send({
         success: false,
         message: `QR code is ${qrCode.status}`
+      })
+      return
+    }
+
+    // Check if QR has started its validity period
+    if (qrCode.valid_from && new Date(qrCode.valid_from) > new Date()) {
+      reply.status(403).send({
+        success: false,
+        message: 'QR code is not yet valid. It will be active from ' + new Date(qrCode.valid_from).toLocaleString('es-MX')
       })
       return
     }

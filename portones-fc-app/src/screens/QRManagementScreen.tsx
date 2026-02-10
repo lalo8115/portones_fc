@@ -153,7 +153,19 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
   const qrCodes = data?.qrCodes || []
 
   // Group QRs by status
-  const activeQRs = qrCodes.filter((qr: any) => qr.effectiveStatus === 'active')
+  const activeQRs = qrCodes
+    .filter((qr: any) => 
+      qr.effectiveStatus === 'active' || qr.effectiveStatus === 'scheduled'
+    )
+    .sort((a: any, b: any) => {
+      // Primero: ordenar por estado (active antes que scheduled)
+      if (a.effectiveStatus === 'active' && b.effectiveStatus === 'scheduled') return -1
+      if (a.effectiveStatus === 'scheduled' && b.effectiveStatus === 'active') return 1
+      
+      // Segundo: dentro del mismo estado, ordenar por fecha de creación (más recientes primero)
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+  
   const expiredQRs = qrCodes.filter((qr: any) => 
     qr.effectiveStatus === 'expired' || qr.effectiveStatus === 'completed'
   )
@@ -162,6 +174,7 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return '$green10'
+      case 'scheduled': return '$purple10'
       case 'expired': return '$orange10'
       case 'completed': return '$blue10'
       case 'revoked': return '$red10'
@@ -172,6 +185,7 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'active': return <CheckCircle size={14} color='white' />
+      case 'scheduled': return <Calendar size={14} color='white' />
       case 'expired': return <Clock size={14} color='white' />
       case 'completed': return <CheckCircle size={14} color='white' />
       case 'revoked': return <Ban size={14} color='white' />
@@ -182,6 +196,7 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
   const getStatusText = (status: string) => {
     switch (status) {
       case 'active': return 'Activo'
+      case 'scheduled': return 'Programado'
       case 'expired': return 'Expirado'
       case 'completed': return 'Completado'
       case 'revoked': return 'Revocado'
@@ -198,6 +213,8 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
 
   const renderQRCard = (qr: any) => {
     const isActive = qr.effectiveStatus === 'active'
+    const isScheduled = qr.effectiveStatus === 'scheduled'
+    const canDelete = isActive || isScheduled
     
     return (
       <Card
@@ -343,7 +360,7 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
                 paddingHorizontal='$3'
               />
             )}
-            {isActive && (
+            {canDelete && (
               <Button
                 flex={qr.url_ine && (qr.rubro === 'family' || qr.rubro === 'service') ? undefined : 1}
                 size='$2'
@@ -363,6 +380,165 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
 
   return (
     <YStack flex={1} backgroundColor='$background'>
+      {/* Header */}
+      <XStack
+        justifyContent='space-between'
+        alignItems='center'
+        padding='$4'
+        paddingTop='$8'
+        backgroundColor='$background'
+        borderBottomWidth={1}
+        borderBottomColor='$gray5'
+      >
+        <YStack flex={1}>
+          <Text fontSize='$6' fontWeight='bold'>
+            Gestión de QRs
+          </Text>
+          <Text fontSize='$3' color='$gray11'>
+            {qrCodes.length} {qrCodes.length === 1 ? 'código generado' : 'códigos generados'}
+          </Text>
+        </YStack>
+        <Button
+          size='$3'
+          chromeless
+          icon={<X size={24} />}
+          onPress={onBack}
+        />
+      </XStack>
+
+      {/* Content */}
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={refetch} />
+        }
+      >
+        {isLoading ? (
+          <YStack flex={1} justifyContent='center' alignItems='center' paddingVertical='$10'>
+            <Spinner size='large' color='$blue10' />
+            <Text fontSize='$3' color='$gray11' marginTop='$3'>
+              Cargando QRs...
+            </Text>
+          </YStack>
+        ) : qrCodes.length === 0 ? (
+          <YStack alignItems='center' justifyContent='center' paddingVertical='$10' space='$3'>
+            <Circle size={80} backgroundColor='$gray5' elevate>
+              <Users size={40} color='$gray10' />
+            </Circle>
+            <Text fontSize='$5' fontWeight='bold' color='$gray12'>
+              Sin QRs generados
+            </Text>
+            <Text fontSize='$3' color='$gray11' textAlign='center'>
+              Aún no has generado códigos QR para visitantes
+            </Text>
+          </YStack>
+        ) : (
+          <YStack flex={1} space='$4'>
+            {/* Active QRs */}
+            {activeQRs.length > 0 && (
+              <YStack flex={isActiveCollapsed ? undefined : 1} space='$2'>
+                <Card
+                  paddingHorizontal='$3'
+                  paddingVertical='$2'
+                  backgroundColor='$green3'
+                  pressStyle={{ opacity: 0.8 }}
+                  onPress={() => setIsActiveCollapsed(!isActiveCollapsed)}
+                >
+                  <XStack alignItems='center' justifyContent='space-between'>
+                    <XStack alignItems='center' space='$2'>
+                      <Circle size={8} backgroundColor='$green10' />
+                      <Text fontSize='$4' fontWeight='bold'>
+                        Activos ({activeQRs.length})
+                      </Text>
+                    </XStack>
+                    {isActiveCollapsed ? (
+                      <ChevronDown size={20} color='$green10' />
+                    ) : (
+                      <ChevronUp size={20} color='$green10' />
+                    )}
+                  </XStack>
+                </Card>
+                {!isActiveCollapsed && (
+                  <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
+                    <YStack>
+                      {activeQRs.map(renderQRCard)}
+                    </YStack>
+                  </ScrollView>
+                )}
+              </YStack>
+            )}
+
+            {/* Expired/Completed QRs */}
+            {expiredQRs.length > 0 && (
+              <YStack flex={isFinishedCollapsed ? undefined : 1} space='$2'>
+                <Card
+                  paddingHorizontal='$3'
+                  paddingVertical='$2'
+                  backgroundColor='$orange3'
+                  pressStyle={{ opacity: 0.8 }}
+                  onPress={() => setIsFinishedCollapsed(!isFinishedCollapsed)}
+                >
+                  <XStack alignItems='center' justifyContent='space-between'>
+                    <XStack alignItems='center' space='$2'>
+                      <Circle size={8} backgroundColor='$orange10' />
+                      <Text fontSize='$4' fontWeight='bold'>
+                        Finalizados ({expiredQRs.length})
+                      </Text>
+                    </XStack>
+                    {isFinishedCollapsed ? (
+                      <ChevronDown size={20} color='$orange10' />
+                    ) : (
+                      <ChevronUp size={20} color='$orange10' />
+                    )}
+                  </XStack>
+                </Card>
+                {!isFinishedCollapsed && (
+                  <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
+                    <YStack>
+                      {expiredQRs.map(renderQRCard)}
+                    </YStack>
+                  </ScrollView>
+                )}
+              </YStack>
+            )}
+
+            {/* Revoked QRs */}
+            {revokedQRs.length > 0 && (
+              <YStack flex={isRevokedCollapsed ? undefined : 1} space='$2'>
+                <Card
+                  paddingHorizontal='$3'
+                  paddingVertical='$2'
+                  backgroundColor='$red3'
+                  pressStyle={{ opacity: 0.8 }}
+                  onPress={() => setIsRevokedCollapsed(!isRevokedCollapsed)}
+                >
+                  <XStack alignItems='center' justifyContent='space-between'>
+                    <XStack alignItems='center' space='$2'>
+                      <Circle size={8} backgroundColor='$red10' />
+                      <Text fontSize='$4' fontWeight='bold'>
+                        Revocados ({revokedQRs.length})
+                      </Text>
+                    </XStack>
+                    {isRevokedCollapsed ? (
+                      <ChevronDown size={20} color='$red10' />
+                    ) : (
+                      <ChevronUp size={20} color='$red10' />
+                    )}
+                  </XStack>
+                </Card>
+                {!isRevokedCollapsed && (
+                  <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
+                    <YStack>
+                      {revokedQRs.map(renderQRCard)}
+                    </YStack>
+                  </ScrollView>
+                )}
+              </YStack>
+            )}
+          </YStack>
+        )}
+      </ScrollView>
+
       {/* QR Code Visualization Sheet */}
       <Sheet
         modal
@@ -389,118 +565,118 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
                 </Text>
               </YStack>
 
-            {/* QR Code */}
-            <Card
-              elevate
-              padding='$5'
-              backgroundColor='$background'
-              borderRadius='$6'
-              alignItems='center'
-            >
-              {selectedQRCode && selectedQRCode.short_code ? (
-                <QRCode
-                  value={String(selectedQRCode.short_code)}
-                  size={220}
-                  backgroundColor='white'
-                  color='black'
-                />
-              ) : (
-                <YStack alignItems='center' justifyContent='center' width={220} height={220}>
-                  <Text color='$gray11'>Código no disponible</Text>
-                </YStack>
-              )}
-            </Card>
-
-            {/* Codigo numérico */}
-            <YStack space='$2' alignItems='center'>
-              <Text fontSize='$2' color='$gray11'>Código numérico</Text>
-              <Text fontSize='$8' fontWeight='bold' letterSpacing={3}>
-                {selectedQRCode?.short_code || 'N/A'}
-              </Text>
-            </YStack>
-
-            {/* Stats */}
-            <XStack space='$3' width='100%'>
-              <Card flex={1} backgroundColor='$gray2' padding='$3' alignItems='center'>
-                <Text fontSize='$2' color='$gray11'>Usadas</Text>
-                <Text fontSize='$6' fontWeight='bold'>
-                  {selectedQRCode?.usedVisits || 0}
-                </Text>
+              {/* QR Code */}
+              <Card
+                elevate
+                padding='$5'
+                backgroundColor='$background'
+                borderRadius='$6'
+                alignItems='center'
+              >
+                {selectedQRCode && selectedQRCode.short_code ? (
+                  <QRCode
+                    value={String(selectedQRCode.short_code)}
+                    size={220}
+                    backgroundColor='white'
+                    color='black'
+                  />
+                ) : (
+                  <YStack alignItems='center' justifyContent='center' width={220} height={220}>
+                    <Text color='$gray11'>Código no disponible</Text>
+                  </YStack>
+                )}
               </Card>
-              <Card flex={1} backgroundColor='$gray2' padding='$3' alignItems='center'>
-                <Text fontSize='$2' color='$gray11'>Total</Text>
-                <Text fontSize='$6' fontWeight='bold'>
-                  {selectedQRCode?.totalVisits || 0}
-                </Text>
-              </Card>
-              <Card flex={1} backgroundColor='$green2' padding='$3' alignItems='center'>
-                <Text fontSize='$2' color='$green11'>Restantes</Text>
-                <Text fontSize='$6' fontWeight='bold' color='$green11'>
-                  {selectedQRCode?.remainingVisits || 0}
-                </Text>
-              </Card>
-            </XStack>
 
-            {/* Expiration info */}
-            <Card width='100%' backgroundColor='$blue2' padding='$3' borderRadius='$4'>
-              <YStack space='$1'>
-                <Text fontSize='$2' color='$blue11' fontWeight='600'>Información de validez</Text>
-                <Text fontSize='$3' color='$gray12' fontWeight='600'>
-                  Válido desde: {selectedQRCode?.valid_from ? new Date(selectedQRCode.valid_from).toLocaleString('es-MX', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                  }) : (selectedQRCode?.created_at ? new Date(selectedQRCode.created_at).toLocaleString('es-MX', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                  }) : 'N/A')}
-                </Text>
-                <Text fontSize='$3' color='$gray12'>
-                  Expira: {selectedQRCode?.expires_at ? new Date(selectedQRCode.expires_at).toLocaleString('es-MX', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                  }) : 'N/A'}
+              {/* Código numérico */}
+              <YStack space='$2' alignItems='center'>
+                <Text fontSize='$2' color='$gray11'>Código numérico</Text>
+                <Text fontSize='$8' fontWeight='bold' letterSpacing={3}>
+                  {selectedQRCode?.short_code || 'N/A'}
                 </Text>
               </YStack>
-            </Card>
 
-            {/* Botón para ver INE si existe */}
-            {selectedQRCode?.url_ine && (selectedQRCode?.rubro === 'family' || selectedQRCode?.rubro === 'service') && (
+              {/* Stats */}
+              <XStack space='$3' width='100%'>
+                <Card flex={1} backgroundColor='$gray2' padding='$3' alignItems='center'>
+                  <Text fontSize='$2' color='$gray11'>Usadas</Text>
+                  <Text fontSize='$6' fontWeight='bold'>
+                    {selectedQRCode?.usedVisits || 0}
+                  </Text>
+                </Card>
+                <Card flex={1} backgroundColor='$gray2' padding='$3' alignItems='center'>
+                  <Text fontSize='$2' color='$gray11'>Total</Text>
+                  <Text fontSize='$6' fontWeight='bold'>
+                    {selectedQRCode?.totalVisits || 0}
+                  </Text>
+                </Card>
+                <Card flex={1} backgroundColor='$green2' padding='$3' alignItems='center'>
+                  <Text fontSize='$2' color='$green11'>Restantes</Text>
+                  <Text fontSize='$6' fontWeight='bold' color='$green11'>
+                    {selectedQRCode?.remainingVisits || 0}
+                  </Text>
+                </Card>
+              </XStack>
+
+              {/* Expiration info */}
+              <Card width='100%' backgroundColor='$blue2' padding='$3' borderRadius='$4'>
+                <YStack space='$1'>
+                  <Text fontSize='$2' color='$blue11' fontWeight='600'>Información de validez</Text>
+                  <Text fontSize='$3' color='$gray12' fontWeight='600'>
+                    Válido desde: {selectedQRCode?.valid_from ? new Date(selectedQRCode.valid_from).toLocaleString('es-MX', {
+                      day: '2-digit',
+                      month: 'long',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false
+                    }) : (selectedQRCode?.created_at ? new Date(selectedQRCode.created_at).toLocaleString('es-MX', {
+                      day: '2-digit',
+                      month: 'long',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false
+                    }) : 'N/A')}
+                  </Text>
+                  <Text fontSize='$3' color='$gray12'>
+                    Expira: {selectedQRCode?.expires_at ? new Date(selectedQRCode.expires_at).toLocaleString('es-MX', {
+                      day: '2-digit',
+                      month: 'long',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false
+                    }) : 'N/A'}
+                  </Text>
+                </YStack>
+              </Card>
+
+              {/* Botón para ver INE si existe */}
+              {selectedQRCode?.url_ine && (selectedQRCode?.rubro === 'family' || selectedQRCode?.rubro === 'service') && (
+                <Button
+                  size='$4'
+                  width='100%'
+                  theme='green'
+                  onPress={() => {
+                    setSelectedINEUrl(selectedQRCode.url_ine)
+                    setShowINESheet(true)
+                  }}
+                  icon={<IdCard size={16} />}
+                >
+                  Ver Identificación
+                </Button>
+              )}
+
+              {/* Close button */}
               <Button
                 size='$4'
                 width='100%'
-                theme='green'
-                onPress={() => {
-                  setSelectedINEUrl(selectedQRCode.url_ine)
-                  setShowINESheet(true)
-                }}
-                icon={<IdCard size={16} />}
+                onPress={() => setShowQRSheet(false)}
+                marginTop='$2'
               >
-                Ver Identificación
+                Cerrar
               </Button>
-            )}
-
-            {/* Close button */}
-            <Button
-              size='$4'
-              width='100%'
-              onPress={() => setShowQRSheet(false)}
-              marginTop='$2'
-            >
-              Cerrar
-            </Button>
-          </YStack>
+            </YStack>
           ) : (
             <YStack alignItems='center' justifyContent='center' padding='$10'>
               <Text fontSize='$4' color='$gray11'>No hay datos para mostrar</Text>
@@ -520,44 +696,44 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
         <Sheet.Overlay backgroundColor='rgba(0, 0, 0, 0.5)' />
         <Sheet.Frame padding='$4' backgroundColor='$background'>
           {selectedINEUrl ? (
-          <YStack flex={1} space='$4' alignItems='center'>
-            {/* Header */}
-            <XStack width='100%' justifyContent='space-between' alignItems='center'>
-              <Text fontSize='$6' fontWeight='bold' color='$color'>
-                Identificación
-              </Text>
+            <YStack flex={1} space='$4' alignItems='center'>
+              {/* Header */}
+              <XStack width='100%' justifyContent='space-between' alignItems='center'>
+                <Text fontSize='$6' fontWeight='bold' color='$color'>
+                  Identificación
+                </Text>
+                <Button
+                  size='$3'
+                  circular
+                  icon={<X size={20} />}
+                  onPress={() => setShowINESheet(false)}
+                />
+              </XStack>
+
+              <Separator width='100%' />
+
+              {/* ID Photo */}
+              <YStack flex={1} width='100%' alignItems='center' justifyContent='center'>
+                <Image
+                  source={{ uri: selectedINEUrl }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    resizeMode: 'contain'
+                  }}
+                />
+              </YStack>
+
+              {/* Close button */}
               <Button
-                size='$3'
-                circular
-                icon={<X size={20} />}
+                size='$4'
+                width='100%'
                 onPress={() => setShowINESheet(false)}
-              />
-            </XStack>
-
-            <Separator width='100%' />
-
-            {/* ID Photo */}
-            <YStack flex={1} width='100%' alignItems='center' justifyContent='center'>
-              <Image
-                source={{ uri: selectedINEUrl }}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  resizeMode: 'contain'
-                }}
-              />
+                marginTop='$2'
+              >
+                Cerrar
+              </Button>
             </YStack>
-
-            {/* Close button */}
-            <Button
-              size='$4'
-              width='100%'
-              onPress={() => setShowINESheet(false)}
-              marginTop='$2'
-            >
-              Cerrar
-            </Button>
-          </YStack>
           ) : (
             <YStack alignItems='center' justifyContent='center' padding='$10'>
               <Text fontSize='$4' color='$gray11'>No se pudo cargar la identificación</Text>
@@ -775,164 +951,8 @@ export const QRManagementScreen: React.FC<QRManagementScreenProps> = ({
           </Card>
         </YStack>
       )}
-      {/* Header */}
-      <XStack
-        justifyContent='space-between'
-        alignItems='center'
-        padding='$4'
-        paddingTop='$8'
-        backgroundColor='$background'
-        borderBottomWidth={1}
-        borderBottomColor='$gray5'
-      >
-        <YStack flex={1}>
-          <Text fontSize='$6' fontWeight='bold'>
-            Gestión de QRs
-          </Text>
-          <Text fontSize='$3' color='$gray11'>
-            {qrCodes.length} {qrCodes.length === 1 ? 'código generado' : 'códigos generados'}
-          </Text>
-        </YStack>
-        <Button
-          size='$3'
-          chromeless
-          icon={<X size={24} />}
-          onPress={onBack}
-        />
-      </XStack>
-
-      {/* Content */}
-      <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-        refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={refetch} />
-        }
-      >
-        {isLoading ? (
-          <YStack flex={1} justifyContent='center' alignItems='center' paddingVertical='$10'>
-            <Spinner size='large' color='$blue10' />
-            <Text fontSize='$3' color='$gray11' marginTop='$3'>
-              Cargando QRs...
-            </Text>
-          </YStack>
-        ) : qrCodes.length === 0 ? (
-          <YStack alignItems='center' justifyContent='center' paddingVertical='$10' space='$3'>
-            <Circle size={80} backgroundColor='$gray5' elevate>
-              <Users size={40} color='$gray10' />
-            </Circle>
-            <Text fontSize='$5' fontWeight='bold' color='$gray12'>
-              Sin QRs generados
-            </Text>
-            <Text fontSize='$3' color='$gray11' textAlign='center'>
-              Aún no has generado códigos QR para visitantes
-            </Text>
-          </YStack>
-        ) : (
-          <YStack flex={1} space='$4'>
-            {/* Active QRs */}
-            {activeQRs.length > 0 && (
-              <YStack flex={isActiveCollapsed ? undefined : 1} space='$2'>
-                <Card
-                  paddingHorizontal='$3'
-                  paddingVertical='$2'
-                  backgroundColor='$green3'
-                  pressStyle={{ opacity: 0.8 }}
-                  onPress={() => setIsActiveCollapsed(!isActiveCollapsed)}
-                >
-                  <XStack alignItems='center' justifyContent='space-between'>
-                    <XStack alignItems='center' space='$2'>
-                      <Circle size={8} backgroundColor='$green10' />
-                      <Text fontSize='$4' fontWeight='bold'>
-                        Activos ({activeQRs.length})
-                      </Text>
-                    </XStack>
-                    {isActiveCollapsed ? (
-                      <ChevronDown size={20} color='$green10' />
-                    ) : (
-                      <ChevronUp size={20} color='$green10' />
-                    )}
-                  </XStack>
-                </Card>
-                {!isActiveCollapsed && (
-                  <ScrollView flex={1} nestedScrollEnabled>
-                    <YStack>
-                      {activeQRs.map(renderQRCard)}
-                    </YStack>
-                  </ScrollView>
-                )}
-              </YStack>
-            )}
-
-            {/* Expired/Completed QRs */}
-            {expiredQRs.length > 0 && (
-              <YStack flex={isFinishedCollapsed ? undefined : 1} space='$2'>
-                <Card
-                  paddingHorizontal='$3'
-                  paddingVertical='$2'
-                  backgroundColor='$orange3'
-                  pressStyle={{ opacity: 0.8 }}
-                  onPress={() => setIsFinishedCollapsed(!isFinishedCollapsed)}
-                >
-                  <XStack alignItems='center' justifyContent='space-between'>
-                    <XStack alignItems='center' space='$2'>
-                      <Circle size={8} backgroundColor='$orange10' />
-                      <Text fontSize='$4' fontWeight='bold'>
-                        Finalizados ({expiredQRs.length})
-                      </Text>
-                    </XStack>
-                    {isFinishedCollapsed ? (
-                      <ChevronDown size={20} color='$orange10' />
-                    ) : (
-                      <ChevronUp size={20} color='$orange10' />
-                    )}
-                  </XStack>
-                </Card>
-                {!isFinishedCollapsed && (
-                  <ScrollView flex={1} nestedScrollEnabled>
-                    <YStack>
-                      {expiredQRs.map(renderQRCard)}
-                    </YStack>
-                  </ScrollView>
-                )}
-              </YStack>
-            )}
-
-            {/* Revoked QRs */}
-            {revokedQRs.length > 0 && (
-              <YStack flex={isRevokedCollapsed ? undefined : 1} space='$2'>
-                <Card
-                  paddingHorizontal='$3'
-                  paddingVertical='$2'
-                  backgroundColor='$red3'
-                  pressStyle={{ opacity: 0.8 }}
-                  onPress={() => setIsRevokedCollapsed(!isRevokedCollapsed)}
-                >
-                  <XStack alignItems='center' justifyContent='space-between'>
-                    <XStack alignItems='center' space='$2'>
-                      <Circle size={8} backgroundColor='$red10' />
-                      <Text fontSize='$4' fontWeight='bold'>
-                        Revocados ({revokedQRs.length})
-                      </Text>
-                    </XStack>
-                    {isRevokedCollapsed ? (
-                      <ChevronDown size={20} color='$red10' />
-                    ) : (
-                      <ChevronUp size={20} color='$red10' />
-                    )}
-                  </XStack>
-                </Card>
-                {!isRevokedCollapsed && (
-                  <ScrollView flex={1} nestedScrollEnabled>
-                    <YStack>
-                      {revokedQRs.map(renderQRCard)}
-                    </YStack>
-                  </ScrollView>
-                )}
-              </YStack>
-            )}
-          </YStack>
-        )}
-      </ScrollView>
     </YStack>
   )
 }
+
+export default QRManagementScreen
