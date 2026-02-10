@@ -140,55 +140,6 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack }) => {
               </Button>
             </YStack>
           </Card>
-
-          <Card elevate size='$3.5' bordered padding='$4'>
-            <YStack space='$2'>
-              <Text fontSize='$5' fontWeight='600'>
-                ¿Necesitas ayuda?
-              </Text>
-              <Text fontSize='$3' color='$gray11'>
-                Contáctanos por cualquiera de estos medios.
-              </Text>
-            </YStack>
-          </Card>
-
-          <Card elevate size='$3.5' bordered padding='$4'>
-            <XStack space='$3' alignItems='center'>
-              <Circle size={44} backgroundColor='$blue10' elevate>
-                <Text fontSize='$5' color='white'>@</Text>
-              </Circle>
-              <YStack flex={1}>
-                <Text fontSize='$4' fontWeight='600'>
-                  Correo
-                </Text>
-                <Text fontSize='$3' color='$gray11'>
-                  {supportEmail}
-                </Text>
-              </YStack>
-              <Button size='$3' theme='blue' onPress={handleEmail}>
-                Escribir
-              </Button>
-            </XStack>
-          </Card>
-
-          <Card elevate size='$3.5' bordered padding='$4'>
-            <XStack space='$3' alignItems='center'>
-              <Circle size={44} backgroundColor='$purple10' elevate>
-                <Text fontSize='$5' color='white'>💬</Text>
-              </Circle>
-              <YStack flex={1}>
-                <Text fontSize='$4' fontWeight='600'>
-                  WhatsApp
-                </Text>
-                <Text fontSize='$3' color='$gray11'>
-                  {whatsapp}
-                </Text>
-              </YStack>
-              <Button size='$3' theme='purple' onPress={handleWhatsApp}>
-                Abrir
-              </Button>
-            </XStack>
-          </Card>
         </YStack>
       </ScrollView>
     </YStack>

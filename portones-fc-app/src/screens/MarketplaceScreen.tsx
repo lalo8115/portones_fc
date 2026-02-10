@@ -81,7 +81,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
     }
 
     incrementMps()
-  }, [apiUrl, authToken, onBack])
+  }, [])
 
   const categories = useMemo(
     () => [
@@ -356,10 +356,9 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
         </XStack>
       ) : (
         <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 16 }}>
-        <YStack space='$4'>
+        <YStack space='$0'>
           {currentMps && currentMps < 4 && (
-  
-            <Card elevate size='$3.5' bordered padding='$4' backgroundColor='$green2'>
+            <Card elevate size='$3.5' bordered padding='$4' backgroundColor='$green2' marginBottom='$4'>
               <XStack space='$3' alignItems='center'>
                 <Circle size={44} backgroundColor='$green10' elevate>
                   <ShoppingBag size={22} color='white' />
@@ -376,21 +375,24 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
             </Card>
           )}
 
-          <YStack space='$2'>
+          <YStack space='$2' marginBottom='$4'>
             <Text fontSize='$5' fontWeight='600'>
               Categorías
             </Text>
-            <XStack flexWrap='wrap' gap='$2'>
+            <XStack flexWrap='wrap' gap='$2' justifyContent='space-between'>
               {categories.map((category) => (
                 <Button
                   key={category.id}
                   size='$2.5'
+                  width='32%'
+                  flexGrow={0}
+                  flexShrink={0}
                   backgroundColor={selectedCategory === category.id ? category.color : 'transparent'}
                   borderColor={selectedCategory === category.id ? category.color : '$gray7'}
                   borderWidth={1}
                   onPress={() => setSelectedCategory(category.id)}
                 >
-                  <XStack space='$2' alignItems='center'>
+                  <XStack space='$2' alignItems='center' justifyContent='center' width='100%'>
                     <Tag size={14} color={selectedCategory === category.id ? 'white' : '#999'} />
                     <Text color={selectedCategory === category.id ? 'white' : '$gray11'}>
                       {category.label}
@@ -401,7 +403,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
             </XStack>
           </YStack>
 
-          <YStack space='$2'>
+          <YStack space='$2' marginBottom='$4'>
             <XStack justifyContent='space-between' alignItems='center'>
               <Text fontSize='$5' fontWeight='600'>
                 Artículos
@@ -517,7 +519,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                       )}
                       
                       <XStack justifyContent='space-between'>
-                        <Text fontSize='$5' fontWeight='600' width={300}>
+                        <Text fontSize='$5' fontWeight='600' width={"80%"}>
                           {item.title}
                         </Text>
                         <Text fontSize='$4' color='$green10' fontWeight='700'>
@@ -575,7 +577,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
           <Card elevate size='$5' bordered padding='$4' width='90%' maxWidth={500}>
             <YStack space='$3'>
               <XStack justifyContent='space-between' alignItems='center'>
-                <Text fontSize='$6' fontWeight='bold'>
+                <Text fontSize='$6' fontWeight='bold' width={"80%"}>
                   {selectedItem?.title}
                 </Text>
                 <Button
@@ -594,9 +596,6 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                   {/* Imágenes */}
                   {(selectedItem?.image_urls && selectedItem.image_urls.length > 0) || selectedItem?.image_url ? (
                     <YStack space='$2'>
-                      <Text fontSize='$4' fontWeight='600'>
-                        Imágenes
-                      </Text>
                       <YStack space='$2'>
                         {/* Imagen actual */}
                         <Image
@@ -605,7 +604,7 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                               ? selectedItem.image_urls[currentImageIndex] 
                               : selectedItem?.image_url 
                           }}
-                          style={{ width: '100%', height: 300, borderRadius: 12 }}
+                          style={{ width: '100%', height: 200, borderRadius: 12 }}
                         />
                         
                         {/* Controles de navegación */}
@@ -672,44 +671,35 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                   {/* Información del vendedor */}
                   <Card elevate bordered padding='$3' backgroundColor='$blue2'>
                     <YStack space='$2'>
-                      <Text fontSize='$4' fontWeight='600'>
-                        Vendedor
-                      </Text>
-                      <Text fontSize='$3'>
-                        {selectedItem?.seller_name}{selectedItem?.seller_unit ? ` · ${selectedItem.seller_unit}` : ''}
-                      </Text>
+                      <XStack justifyContent='space-between'>
+                        <Text fontSize='$4' fontWeight='600'>
+                          Vendedor
+                        </Text>
+                        <Text fontSize='$3'>
+                          {selectedItem?.seller_name}{selectedItem?.seller_unit ? ` · ${selectedItem.seller_unit}` : ''}
+                        </Text>
+                      </XStack>
+                        {selectedItem?.contact_info &&(
+                          <YStack space='$2'>
+                            <hr style={{ border: '0', borderTop: '1px solid #cccccc36', margin: '5px 0' }}/>
+                            <Text fontSize='$4' fontWeight='600'>
+                              Contacto
+                            </Text>
+                            <Text fontSize='$3' selectable>
+                              {selectedItem.contact_info}
+                            </Text>
+                          </YStack>
+                        )}
+                      <hr style={{ border: '0', borderTop: '1px solid #cccccc36', margin: '5px 0' }}/>
                       <Text fontSize='$2' color='$gray10'>
                         Publicado: {formatDate(selectedItem?.created_at || '')}
                       </Text>
                     </YStack>
                   </Card>
 
-                  {/* Información de contacto */}
-                  {selectedItem?.contact_info && (
-                    <Card elevate bordered padding='$3' backgroundColor='$green2'>
-                      <YStack space='$2'>
-                        <Text fontSize='$4' fontWeight='600'>
-                          Contacto
-                        </Text>
-                        <Text fontSize='$3' selectable>
-                          {selectedItem.contact_info}
-                        </Text>
-                      </YStack>
-                    </Card>
-                  )}
+
                 </YStack>
               </ScrollView>
-
-              <Button
-                size='$3'
-                theme='green'
-                onPress={() => {
-                  setSelectedItem(null)
-                  setCurrentImageIndex(0)
-                }}
-              >
-                <Text fontWeight='700'>Cerrar</Text>
-              </Button>
             </YStack>
           </Card>
         </View>
@@ -858,13 +848,16 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                       <Text fontSize='$3' fontWeight='600'>
                         Categoría
                       </Text>
-                      <XStack flexWrap='wrap' gap='$2'>
+                      <XStack flexWrap='wrap' gap='$2' justifyContent='space-between'>
                         {categories
                           .filter((category) => category.id !== 'all')
                           .map((category) => (
                             <Button
                               key={category.id}
                               size='$2.5'
+                              width='32%'
+                              flexGrow={0}
+                              flexShrink={0}
                               backgroundColor={formCategory === category.id ? category.color : 'transparent'}
                               borderColor={formCategory === category.id ? category.color : '$gray7'}
                               borderWidth={1}

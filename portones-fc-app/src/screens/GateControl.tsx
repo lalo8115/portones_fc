@@ -14,7 +14,6 @@ import { SupportScreen } from './SupportScreen'
 import { PaymentStatusScreen } from './PaymentStatusScreen'
 import { AdminPanelScreen } from './AdminPanelScreen'
 import { AdminPaymentReportScreen } from './AdminPaymentReportScreen'
-
 interface GateState {
   [key: string]: 'OPEN' | 'CLOSED' | 'OPENING' | 'CLOSING' | 'UNKNOWN'
 }
@@ -201,20 +200,26 @@ const GateCard: React.FC<GateCardProps> = ({
       space='$3'
       flex={1}
       minHeight={200}
+      $heightSm={{ size: '$3', padding: '$3', space: '$2', minHeight: 160 }}
     >
       <YStack space='$3' flex={1} justifyContent='space-between'>
         <YStack space='$2' alignItems='center'>
-          <Text fontSize='$6' fontWeight='bold'>
+          <Text fontSize='$6' fontWeight='bold' $heightSm={{ fontSize: '$5' }}>
             {gateName}
           </Text>
-          <Circle size={60} backgroundColor={getStatusColor()} elevate>
+          <Circle
+            size={60}
+            backgroundColor={getStatusColor()}
+            elevate
+            $heightSm={{ size: 50 }}
+          >
             {effectiveStatus === 'OPEN' ? (
               <Unlock size={32} color='white' />
             ) : (
               <Lock size={32} color='white' />
             )}
           </Circle>
-          <Text fontSize='$4' color='$gray11'>
+          <Text fontSize='$4' color='$gray11' $heightSm={{ fontSize: '$3' }}>
             {getStatusText()}
           </Text>
         </YStack>
@@ -226,6 +231,7 @@ const GateCard: React.FC<GateCardProps> = ({
             backgroundColor='white'
             borderWidth={1}
             borderColor='rgba(54, 158, 255, 0.35)'
+            $heightSm={{ size: '$2' }}
             disabled={isRevoked || buttonState !== 'idle'}
             onPress={() => openMutation.mutate()}
           >
@@ -233,12 +239,12 @@ const GateCard: React.FC<GateCardProps> = ({
               <Spinner size='small' color='#369eff' />
             )}
             {buttonState === 'idle' && (
-              <Text color='#369eff' fontWeight='700'>
+              <Text color='#369eff' fontWeight='700' $heightSm={{ fontSize: '$2' }}>
                 Abrir
               </Text>
             )}
             {buttonState === 'counting' && (
-              <Text color='#369eff' fontWeight='700'>
+              <Text color='#369eff' fontWeight='700' $heightSm={{ fontSize: '$2' }}>
                 {`Cerrando en ${countdown}...`}
               </Text>
             )}
@@ -398,23 +404,26 @@ export const GateControl: React.FC<GateControlProps> = ({
 
   // Componente para pantalla principal de portones
   const GatesScreen = () => (
-    <YStack padding='$4' space='$4'>
+    <YStack padding='$4' space='$4' >
       <Card
+        $heightSm={{ display: 'none' }}   // max height 700px
         elevate
         bordered
         padding='$4'
         backgroundColor='rgba(0,0,0,0.35)'
         borderColor='rgba(255,255,255,0.14)'
+        height={"18%"}
+
       >
-        <YStack space='$2'>
-          <Text fontSize='$5' fontWeight='800' color='white'>
+        <YStack space='$2' >
+          <Text fontSize='100%' fontWeight='800' color='white'>
             {profile?.full_name || 'Usuario'}
           </Text>
 
           {profile?.colonia?.nombre && (
             <XStack alignItems='center' gap='$2'>
               <MapPin size={16} color='rgba(120, 210, 255, 0.95)' />
-              <Text fontSize='$3.5' color='rgba(180, 235, 255, 0.95)' fontWeight='700'>
+              <Text fontSize='100%' color='rgba(180, 235, 255, 0.95)' fontWeight='700'>
                 {profile.colonia.nombre}
               </Text>
             </XStack>
@@ -423,7 +432,7 @@ export const GateControl: React.FC<GateControlProps> = ({
           {profile?.house && (
             <XStack alignItems='center' gap='$2'>
               <Home size={16} color='rgba(255,255,255,0.92)' />
-              <Text fontSize='$3.5' color='rgba(255,255,255,0.92)'>
+              <Text fontSize='100%' color='rgba(255,255,255,0.92)'>
                 {profile.house.street} {profile.house.external_number}
               </Text>
             </XStack>
@@ -482,13 +491,13 @@ export const GateControl: React.FC<GateControlProps> = ({
               const typeGates = groupedGates[type] || []
               
               return (
-                <YStack key={type} space='$3'>
+                <YStack key={type} space='$3' height={"50%"}>
                   <Text fontSize='$5' fontWeight='bold' color='$color'>
                     {type === 'ENTRADA' ? 'Entrada' : type === 'SALIDA' ? 'Salida' : type}
                   </Text>
-                  <XStack space='$3' width='100%'>
+                  <XStack space='$3' width='100%' >
                     {typeGates.map((gate, index) => (
-                      <YStack key={gate.id} flex={1} minWidth='45%'>
+                      <YStack key={gate.id} flex={1} minWidth='45%' >
                         <GateCard
                           gateId={gate.id}
                           gateName={gate.name}
@@ -554,13 +563,14 @@ export const GateControl: React.FC<GateControlProps> = ({
             }
           ]
         : []),
-      {
-        id: 'notifications',
-        title: 'Notificaciones',
-        description: 'Configurar alertas y avisos',
-        icon: '🔔',
-        color: '$yellow10',
-      },
+      
+      // {
+      //   id: 'notifications',
+      //   title: 'Notificaciones',
+      //   description: 'Configurar alertas y avisos',
+      //   icon: '🔔',
+      //   color: '$yellow10',
+      // },
       {
         id: 'support',
         title: 'Soporte',
@@ -568,6 +578,7 @@ export const GateControl: React.FC<GateControlProps> = ({
         icon: '💬',
         color: '$gray10',
       },
+
     ]
 
     return (
@@ -590,6 +601,7 @@ export const GateControl: React.FC<GateControlProps> = ({
               size='$3.5'
               bordered
               padding='$3.5'
+              $heightSm={{ size: '$3', padding: '$3' }}
               pressStyle={{ scale: 0.97, opacity: 0.8 }}
               onPress={() => {
                 if (option.id === 'payment') {
@@ -613,12 +625,19 @@ export const GateControl: React.FC<GateControlProps> = ({
               }}
             >
               <XStack space='$3' alignItems='center'>
-                <Circle size={50} backgroundColor={option.color} elevate>
-                  <Text fontSize='$6'>{option.icon}</Text>
+                <Circle
+                  size={50}
+                  backgroundColor={option.color}
+                  elevate
+                  $heightSm={{ size: 44 }}
+                >
+                  <Text fontSize='$6' $heightSm={{ fontSize: '$5' }}>
+                    {option.icon}
+                  </Text>
                 </Circle>
                 <YStack flex={1} space='$1'>
                   <XStack justifyContent='space-between' alignItems='center'>
-                    <Text fontSize='$4' fontWeight='600'>
+                    <Text fontSize='$4' fontWeight='600' $heightSm={{ fontSize: '$3' }}>
                       {option.title}
                     </Text>
                     {option.badge && (
@@ -627,18 +646,24 @@ export const GateControl: React.FC<GateControlProps> = ({
                         backgroundColor={option.badgeColor}
                         paddingHorizontal='$2'
                         paddingVertical='$1'
+                        $heightSm={{ paddingHorizontal: '$1.5', paddingVertical: '$0.5' }}
                       >
-                        <Text fontSize='$1.5' color='white' fontWeight='600'>
+                        <Text
+                          fontSize='$1.5'
+                          color='white'
+                          fontWeight='600'
+                          $heightSm={{ fontSize: '$1' }}
+                        >
                           {option.badge}
                         </Text>
                       </Card>
                     )}
                   </XStack>
-                  <Text fontSize='$2.5' color='$gray11'>
+                  <Text fontSize='$2.5' color='$gray11' $heightSm={{ fontSize: '$2' }}>
                     {option.description}
                   </Text>
                 </YStack>
-                <Text fontSize='$5' color='$gray10'>
+                <Text fontSize='$5' color='$gray10' $heightSm={{ fontSize: '$4' }}>
                   →
                 </Text>
               </XStack>
@@ -793,48 +818,39 @@ export const GateControl: React.FC<GateControlProps> = ({
   }
 
   return (
-    <YStack flex={1} backgroundColor={currentScreen === 1 ? '#000' : '$background'}>
+    <YStack flex={1} backgroundColor={currentScreen === 1 ? '#000' : '$background'} >
       {/* Header (solo estilo especial en la pantalla central de Portones) */}
       {currentScreen === 1 ? (
-        <View style={{ position: 'relative', overflow: 'hidden' }}>
-          <AnimatedBackground
-            bleed={0}
-            showAurora={false}
-            showOverlayGradient
-            baseColor='#000'
-            opacity={0}
-          />
-          <XStack
-            
-            justifyContent='space-between'
-            alignItems='center'
-            padding='$4'
-            paddingTop='$8'
-            paddingBottom='$7'
-            backgroundColor='transparent'
-            borderBottomWidth={1}
-            borderBottomColor='rgba(255,255,255,0.10)'
-          >
-            <Text fontSize='$7' fontWeight='900' color='white'>
-              Porton Inteligente
-            </Text>
-            <XStack space='$2'>
-              <Button
-                size='$3'
-                icon={<RefreshCw size={18} color='white' />}
-                onPress={() => refetchGates()}
-                disabled={isLoading}
-                chromeless
-              />
-              <Button
-                size='$3'
-                icon={<LogOut size={18} color='white' />}
-                onPress={() => signOut()}
-                chromeless
-              />
-            </XStack>
+        <XStack
+          height={"13%"}
+          justifyContent='space-between'
+          alignItems='center'
+          padding='$4'
+          paddingTop='$8'
+          paddingBottom='$7'
+          backgroundColor='transparent'
+          borderBottomWidth={1}
+          borderBottomColor='rgba(255,255,255,0.10)'
+        >
+          <Text fontSize='$7' fontWeight='900' color='white'>
+            Portón Inteligente
+          </Text>
+          <XStack space='$2'>
+            <Button
+              size='$3'
+              icon={<RefreshCw size={18} color='white' />}
+              onPress={() => refetchGates()}
+              disabled={isLoading}
+              chromeless
+            />
+            <Button
+              size='$3'
+              icon={<LogOut size={18} color='white' />}
+              onPress={() => signOut()}
+              chromeless
+            />
           </XStack>
-        </View>
+        </XStack>
       ) : (
         <XStack
           justifyContent='space-between'
@@ -844,6 +860,7 @@ export const GateControl: React.FC<GateControlProps> = ({
           backgroundColor='$background'
           borderBottomWidth={1}
           borderBottomColor='$gray5'
+          height={"14%"}
         >
           <YStack space='$1' flex={1}>
             <Text fontSize='$4' fontWeight='600' color='$color'>
@@ -886,7 +903,6 @@ export const GateControl: React.FC<GateControlProps> = ({
         </XStack>
       )}
 
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         {/* Main Content */}
         <YStack flex={1}>
           {/* Contenedor de pantallas deslizables */}
@@ -927,6 +943,9 @@ export const GateControl: React.FC<GateControlProps> = ({
               borderTopWidth={1}
               borderTopColor={currentScreen === 1 ? 'rgba(255,255,255,0.10)' : '$gray5'}
               backgroundColor={currentScreen === 1 ? '#000' : 'transparent'}
+              $heightSm={{ display: 'none' }}
+              $heightMd={{display:'none'}}
+              
             >
               <YStack 
                 width={8} 
@@ -994,7 +1013,7 @@ export const GateControl: React.FC<GateControlProps> = ({
               </Button>
             </XStack>
           </YStack>
-      </ScrollView>
+
       {isScanning && (
         <YStack
           position='absolute'

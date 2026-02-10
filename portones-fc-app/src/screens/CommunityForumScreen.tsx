@@ -4,7 +4,6 @@ import { YStack, XStack, Text, Button, Card, Input, TextArea, Spinner, Circle, S
 import { ChevronLeft, Plus, MessageCircle, Calendar as CalendarIcon, FileText, Send, ChevronDown, Clock, Upload, ExternalLink } from '@tamagui/lucide-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
-import DateTimePicker from '@react-native-community/datetimepicker'
 import * as DocumentPicker from 'expo-document-picker'
 import { decode } from 'base64-arraybuffer'
 import { createClient } from '@supabase/supabase-js'
@@ -104,11 +103,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
   const [eventDate, setEventDate] = useState('')
   const [eventTime, setEventTime] = useState('')
   const [eventDuration, setEventDuration] = useState('')
-  const [showDatePicker, setShowDatePicker] = useState(false)
-  const [showTimePicker, setShowTimePicker] = useState(false)
   const [showDurationPicker, setShowDurationPicker] = useState(false)
-  const [datePickerValue, setDatePickerValue] = useState(new Date())
-  const [timePickerValue, setTimePickerValue] = useState(new Date())
   const [selectedMonth, setSelectedMonth] = useState('')
   const [showMonthPicker, setShowMonthPicker] = useState(false)
   const [selectedPdfUrl, setSelectedPdfUrl] = useState<string | null>(null)
@@ -306,35 +301,6 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
     }
   }
 
-  const handleDateChange = (event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowDatePicker(false)
-    }
-    if (selectedDate) {
-      setDatePickerValue(selectedDate)
-      const formatted = selectedDate.toLocaleDateString('es-MX', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      })
-      setEventDate(formatted)
-    }
-  }
-
-  const handleTimeChange = (event: any, selectedTime?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowTimePicker(false)
-    }
-    if (selectedTime) {
-      setTimePickerValue(selectedTime)
-      const formatted = selectedTime.toLocaleTimeString('es-MX', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      })
-      setEventTime(formatted)
-    }
-  }
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
@@ -354,6 +320,27 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
       month: 'short',
       year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
     })
+  }
+
+  const formatDateInput = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 6)
+    if (digits.length <= 2) return digits
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+  }
+
+  const formatTimeInput = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 4)
+    if (digits.length <= 2) return digits
+    return `${digits.slice(0, 2)}:${digits.slice(2)}`
+  }
+
+  const handleEventDateChange = (value: string) => {
+    setEventDate(formatDateInput(value))
+  }
+
+  const handleEventTimeChange = (value: string) => {
+    setEventTime(formatTimeInput(value))
   }
 
   const handleCreatePost = async () => {
@@ -599,44 +586,13 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                     <Text fontSize='$3' fontWeight='600'>
                       Fecha del Evento
                     </Text>
-                    <Button
+                    <Input
                       size='$4'
-                      backgroundColor='$background'
-                      borderWidth={1}
-                      borderColor='$gray7'
-                      color='$color'
-                      justifyContent='flex-start'
-                      icon={<CalendarIcon size={18} color='$gray11' />}
-                      onPress={() => setShowDatePicker(true)}
-                    >
-                      <Text color={eventDate ? '$color' : '$gray11'}>
-                        {eventDate || 'Seleccionar fecha'}
-                      </Text>
-                    </Button>
-                    {showDatePicker && (
-                      <DateTimePicker
-                        value={datePickerValue}
-                        mode='date'
-                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                        onChange={handleDateChange}
-                        minimumDate={new Date()}
-                      />
-                    )}
-                    {Platform.OS === 'ios' && showDatePicker && (
-                      <Button
-                        size='$3'
-                        theme='blue'
-                        marginTop='$2'
-                        onPress={() => setShowDatePicker(false)}
-                      >
-                        Confirmar
-                      </Button>
-                    )}
-                    {!eventDate && (
-                      <Text fontSize='$2' color='$gray10'>
-                        Opcional
-                      </Text>
-                    )}
+                      placeholder='DD/MM/AA'
+                      value={eventDate}
+                      onChangeText={handleEventDateChange}
+                      maxLength={8}
+                    />
                   </YStack>
 
                   <XStack space='$3'>
@@ -644,44 +600,13 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                       <Text fontSize='$3' fontWeight='600'>
                         Hora
                       </Text>
-                      <Button
+                      <Input
                         size='$4'
-                        backgroundColor='$background'
-                        borderWidth={1}
-                        borderColor='$gray7'
-                        color='$color'
-                        justifyContent='flex-start'
-                        icon={<Clock size={18} color='$gray11' />}
-                        onPress={() => setShowTimePicker(true)}
-                      >
-                        <Text color={eventTime ? '$color' : '$gray11'}>
-                          {eventTime || 'HH:MM'}
-                        </Text>
-                      </Button>
-                      {showTimePicker && (
-                        <DateTimePicker
-                          value={timePickerValue}
-                          mode='time'
-                          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                          onChange={handleTimeChange}
-                          is24Hour={true}
-                        />
-                      )}
-                      {Platform.OS === 'ios' && showTimePicker && (
-                        <Button
-                          size='$2'
-                          theme='blue'
-                          marginTop='$2'
-                          onPress={() => setShowTimePicker(false)}
-                        >
-                          OK
-                        </Button>
-                      )}
-                      {!eventTime && (
-                        <Text fontSize='$2' color='$gray10'>
-                          Opcional
-                        </Text>
-                      )}
+                        placeholder='HH:MM'
+                        value={eventTime}
+                        onChangeText={handleEventTimeChange}
+                        maxLength={5}
+                      />
                     </YStack>
 
                     <YStack flex={1} space='$2'>
@@ -702,11 +627,6 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                         </Text>
                         <ChevronDown size={16} color='$gray11' />
                       </Button>
-                      {!eventDuration && (
-                        <Text fontSize='$2' color='$gray10'>
-                          Opcional
-                        </Text>
-                      )}
                     </YStack>
                   </XStack>
 
@@ -1004,8 +924,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                     bordered
                     padding='$3'
                     pressStyle={{ scale: 0.98, opacity: 0.9 }}
-                    backgroundColor='$orange2'
-                    borderColor='$orange7'
+
                     onPress={() => {
                       if (post.file_url) {
                         openPdf(post.file_url)
@@ -1029,7 +948,6 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                           Toca para ver el PDF
                         </Text>
                       </YStack>
-                      <ChevronDown size={20} color='$orange10' style={{ transform: [{ rotate: '-90deg' }] }} />
                     </XStack>
                   </Card>
                 )
@@ -1170,9 +1088,29 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                     borderBottomColor='$gray5'
                     backgroundColor='$background'
                   >
-                    <Text fontSize='$5' fontWeight='bold'>
-                      Detalles
-                    </Text>
+                    {/* Categoría Badge */}
+                    <XStack space='$3' alignItems='center'>
+                      {selectedPost.category === 'events' && (
+                        <>
+                          <Circle size={32} backgroundColor='$blue10'>
+                            <CalendarIcon size={16} color='white' />
+                          </Circle>
+                          <Text fontSize='$8' color='$blue11' fontWeight='600' paddingLeft={"$2.5"}>
+                            Evento
+                          </Text>
+                        </>
+                      )}
+                      {selectedPost.category === 'messages' && (
+                        <XStack space='$3'>
+                          <Circle size={32} backgroundColor='$green10'>
+                            <MessageCircle size={16} color='white' />
+                          </Circle>
+                          <Text fontSize='$3' color='$green11' fontWeight='600' paddingTop='$1.5'>
+                            Mensaje
+                          </Text>
+                        </XStack>
+                      )}
+                    </XStack>
                     <Button
                       size='$3'
                       chromeless
@@ -1185,29 +1123,7 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
 
                   <ScrollView style={{ maxHeight: '100%' }}>
                     <YStack padding='$4' space='$4'>
-                      {/* Categoría Badge */}
-                      <XStack space='$3' alignItems='center'>
-                        {selectedPost.category === 'events' && (
-                          <>
-                            <Circle size={32} backgroundColor='$blue10'>
-                              <CalendarIcon size={16} color='white' />
-                            </Circle>
-                            <Text fontSize='$3' color='$blue11' fontWeight='600' paddingTop='$1.5'>
-                              Evento
-                            </Text>
-                          </>
-                        )}
-                        {selectedPost.category === 'messages' && (
-                          <XStack space='$3'>
-                            <Circle size={32} backgroundColor='$green10'>
-                              <MessageCircle size={16} color='white' />
-                            </Circle>
-                            <Text fontSize='$3' color='$green11' fontWeight='600' paddingTop='$1.5'>
-                              Mensaje
-                            </Text>
-                          </XStack>
-                        )}
-                      </XStack>
+                      
 
                       {/* Título */}
                       <YStack space='$2'>
