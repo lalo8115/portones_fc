@@ -1186,13 +1186,13 @@ export const CommunityForumScreen: React.FC<CommunityForumScreenProps> = ({
                   <ScrollView style={{ maxHeight: '100%' }}>
                     <YStack padding='$4' space='$4'>
                       {/* Categoría Badge */}
-                      <XStack space='$2' alignItems='center'>
+                      <XStack space='$3' alignItems='center'>
                         {selectedPost.category === 'events' && (
                           <>
                             <Circle size={32} backgroundColor='$blue10'>
                               <CalendarIcon size={16} color='white' />
                             </Circle>
-                            <Text fontSize='$3' color='$blue11' fontWeight='600'>
+                            <Text fontSize='$3' color='$blue11' fontWeight='600' paddingTop='$1.5'>
                               Evento
                             </Text>
                           </>

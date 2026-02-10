@@ -2237,32 +2237,21 @@ fastify.get('/marketplace/items', async (request, reply) => {
     // Get seller information for all items
     const sellerIds = Array.from(new Set((items ?? []).map((item: any) => item.seller_id)))
     
-    let sellersMap = new Map<string, { email: string; house_address?: string }>()
+    let sellersMap = new Map<string, { full_name: string; house_address?: string }>()
 
     if (sellerIds.length > 0) {
-      // Get emails from auth.users
-      const { data: authUsers, error: authError } = await supabaseAdmin.auth.admin.listUsers()
-      
-      if (!authError && authUsers?.users) {
-        authUsers.users.forEach((u: any) => {
-          if (sellerIds.includes(u.id)) {
-            sellersMap.set(u.id, { email: u.email || 'Usuario' })
-          }
-        })
-      }
-
-      // Get house information from profiles
+      // Get seller information from profiles
       const { data: profiles, error: profilesError } = await supabaseAdmin
         .from('profiles')
-        .select('id, house_id, houses!fk_profiles_house(street, external_number)')
+        .select('id, full_name, house_id, houses!fk_profiles_house(street, external_number)')
         .in('id', sellerIds)
 
       if (!profilesError && profiles) {
         profiles.forEach((p: any) => {
-          const existing = sellersMap.get(p.id)
-          if (existing && p.houses) {
-            existing.house_address = `${p.houses.street} ${p.houses.external_number}`
-          }
+          sellersMap.set(p.id, {
+            full_name: p.full_name || 'Usuario',
+            house_address: p.houses ? `${p.houses.street} ${p.houses.external_number}` : undefined
+          })
         })
       }
     }
@@ -2280,7 +2269,7 @@ fastify.get('/marketplace/items', async (request, reply) => {
         image_url: item.image_url,
         created_at: item.created_at,
         seller_id: item.seller_id,
-        seller_name: seller?.email?.split('@')[0] || 'Usuario',
+        seller_name: seller?.full_name || 'Usuario',
         seller_unit: seller?.house_address || undefined
       }
     })
