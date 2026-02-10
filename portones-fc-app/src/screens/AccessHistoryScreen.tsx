@@ -2,18 +2,23 @@ import React, { useState } from 'react'
 import { ScrollView, RefreshControl } from 'react-native'
 import { useQuery } from '@tanstack/react-query'
 import { YStack, XStack, Text, Spinner, Card, Circle, Button, Sheet } from 'tamagui'
-import { Clock, ChevronLeft, LogIn, LogOut as LogOutIcon, Calendar, User, Hash, Info, X } from '@tamagui/lucide-icons'
+import { Clock, ChevronLeft, LogIn, LogOut as LogOutIcon, Calendar, Home, User, Hash, Info, X } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
+import { getRubroIcon, getRubroText, getRubroColor } from '../constants/qrPolicies'
 
 interface AccessRecord {
   id: string
   gate_id: number
   gate_name: string
   gate_type: string
-  user_id: string
+  user_id: string | null
   user_name: string | null
+  qr_id?: string | null
   apartment_unit: string | null
-  user_address?: string | null
+  house_address?: string | null
+  accessor_name: string | null
+  accessor_type: 'user' | 'visitor'
+  visitor_rubro?: string | null
   action: 'OPEN' | 'CLOSE'
   timestamp: string
   method: 'APP' | 'QR' | 'MANUAL' | 'AUTOMATIC' | string
@@ -277,7 +282,10 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                 {/* Registros del día */}
                 <YStack space='$3'>
                   {records.map((record) => {
-                  const ActionIcon = getActionIcon(record.action)
+                  const isVisitor = record.accessor_type === 'visitor'
+                  const displayName = isVisitor
+                    ? record.accessor_name
+                    : record.user_name
                   
                   return (
                     <Card
@@ -288,39 +296,82 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                       padding='$3'
                       pressStyle={{ scale: 0.98, opacity: 0.8 }}
                       onPress={() => handleRecordPress(record)}
+                      backgroundColor='$background'
                     >
                       <XStack space='$3' alignItems='center'>
-                        {/* Icono de acción */}
+                        {/* Icono principal unificado */}
                         <Circle 
-                          size={45} 
-                          backgroundColor={getActionColor(record.action)} 
+                          size={50} 
+                          backgroundColor={isVisitor && record.visitor_rubro ? getRubroColor(record.visitor_rubro) : '$blue10'}
+                          justifyContent="center"
+                          alignItems="center"
                           elevate
                         >
-                          <ActionIcon size={22} color='white' />
+                          {isVisitor && record.visitor_rubro ? (
+                            <Text fontSize={24} textAlign="center">{getRubroIcon(record.visitor_rubro)}</Text>
+                          ) : (
+                            <Home size={24} color='white' />
+                          )}
                         </Circle>
 
                         {/* Información del registro */}
-                        <YStack flex={1} space='$1'>
+                        <YStack flex={1} space='$1.5'>
+                          {/* Línea 1: Portón + Estado */}
                           <XStack justifyContent='space-between' alignItems='center'>
-                            <Text fontSize='$4' fontWeight='600'>
+                            <Text fontSize='$4' fontWeight='700' color='$gray12'>
                               {record.gate_name}
                             </Text>
-                            <Text 
-                              fontSize='$2' 
-                              color={getActionColor(record.action)}
-                              fontWeight='600'
+                            <XStack 
+                              paddingHorizontal='$2' 
+                              paddingVertical='$1' 
+                              backgroundColor={getActionColor(record.action) + '20'}
+                              borderRadius='$2'
                             >
-                              {getActionText(record.action)}
+                              <Text 
+                                fontSize='$2' 
+                                color={getActionColor(record.action)}
+                                fontWeight='700'
+                              >
+                                {getActionText(record.action)}
+                              </Text>
+                            </XStack>
+                          </XStack>
+
+                          {/* Línea 2: Nombre */}
+                          <Text fontSize='$3' fontWeight='600' color='$gray11'>
+                            {displayName || 'Sin nombre'}
+                          </Text>
+
+                          {/* Línea 3: Badge de rubro (solo QR) + tipo de portón */}
+                          <XStack space='$2' alignItems='center'>
+                            {isVisitor && record.visitor_rubro ? (
+                              <>
+                                <XStack 
+                                  paddingHorizontal='$2.5' 
+                                  paddingVertical='$1' 
+                                  backgroundColor={getRubroColor(record.visitor_rubro)}
+                                  borderRadius='$3'
+                                >
+                                  <Text 
+                                    fontSize='$2' 
+                                    color='white'
+                                    fontWeight='700'
+                                  >
+                                    {getRubroText(record.visitor_rubro)}
+                                  </Text>
+                                </XStack>
+                                <Circle size={3} backgroundColor='$gray9' />
+                              </>
+                            ) : null}
+                            <Text fontSize='$2' color='$gray10'>
+                              {getGateTypeText(record.gate_type)}
                             </Text>
                           </XStack>
 
-                          <Text fontSize='$2' color='$gray11'>
-                            {getGateTypeText(record.gate_type)} • {getMethodText(record.method)}
-                          </Text>
-
-                          <XStack alignItems='center' space='$1' marginTop='$1'>
-                            <Clock size={12} color='$gray10' />
-                            <Text fontSize='$2' color='$gray10'>
+                          {/* Línea 4: Timestamp */}
+                          <XStack alignItems='center' space='$1.5'>
+                            <Clock size={12} color='$gray9' />
+                            <Text fontSize='$2' color='$gray9'>
                               {formatDate(record.timestamp)}
                             </Text>
                           </XStack>
@@ -375,36 +426,61 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                 />
               </XStack>
 
-              {/* Indicador visual de acción */}
+              {/* Indicador visual con icono unificado */}
               <XStack 
                 space="$3" 
                 alignItems="center"
-                padding="$3"
-                backgroundColor={getActionColor(selectedRecord.action) + '20'}
-                borderRadius="$4"
+                padding="$4"
+                backgroundColor='$blue2'
+                borderRadius="$5"
+                borderWidth={1}
+                borderColor='$blue6'
               >
                 <Circle 
-                  size={60} 
-                  backgroundColor={getActionColor(selectedRecord.action)} 
+                  size={70} 
+                  backgroundColor={
+                    selectedRecord.accessor_type === 'visitor' && selectedRecord.visitor_rubro
+                      ? getRubroColor(selectedRecord.visitor_rubro)
+                      : '$blue10'
+                  }
+                  justifyContent="center"
+                  alignItems="center"
                   elevate
                 >
-                  {React.createElement(getActionIcon(selectedRecord.action), { size: 30, color: 'white' })}
+                  {selectedRecord.accessor_type === 'visitor' && selectedRecord.visitor_rubro ? (
+                    <Text fontSize={36} textAlign="center">{getRubroIcon(selectedRecord.visitor_rubro)}</Text>
+                  ) : (
+                    <Home size={36} color='white' />
+                  )}
                 </Circle>
-                <YStack flex={1}>
-                  <Text fontSize="$5" fontWeight="600">
+                <YStack flex={1} space="$1">
+                  <Text fontSize="$6" fontWeight="700">
                     {selectedRecord.gate_name}
                   </Text>
-                  <Text fontSize="$3" color="$gray11">
-                    {getGateTypeText(selectedRecord.gate_type)}
+                  <Text fontSize="$3" color="$gray11" fontWeight="600">
+                    {selectedRecord.accessor_name || selectedRecord.user_name || 'Usuario'}
                   </Text>
+                  <XStack space="$2" alignItems="center">
+                    <Text fontSize="$2" color="$gray10">
+                      {getGateTypeText(selectedRecord.gate_type)}
+                    </Text>
+                    <Circle size={4} backgroundColor="$gray10" />
+                    <XStack 
+                      paddingHorizontal="$2" 
+                      paddingVertical="$0.5" 
+                      backgroundColor={getActionColor(selectedRecord.action) + '20'}
+                      borderRadius="$2"
+                    >
+                      <Text 
+                        fontSize="$2" 
+                        color={getActionColor(selectedRecord.action)}
+                        fontWeight="700"
+                      >
+                        {getActionText(selectedRecord.action)}
+                      </Text>
+                    </XStack>
+                  </XStack>
                 </YStack>
-                <Text 
-                  fontSize="$4" 
-                  color={getActionColor(selectedRecord.action)}
-                  fontWeight="700"
-                >
-                  {getActionText(selectedRecord.action)}
-                </Text>
               </XStack>
 
               {/* Detalles */}
@@ -439,8 +515,38 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                   </YStack>
                 </XStack>
 
-                {/* Usuario */}
-                {selectedRecord.user_name && (
+                {/* Tipo de acceso y rubro (solo para visitantes) */}
+                {selectedRecord.accessor_type === 'visitor' && selectedRecord.visitor_rubro && (
+                  <XStack 
+                    space="$3" 
+                    padding="$3"
+                    backgroundColor={getRubroColor(selectedRecord.visitor_rubro) + '15'}
+                    borderRadius="$4"
+                    borderWidth={1}
+                    borderColor={getRubroColor(selectedRecord.visitor_rubro) + '30'}
+                  >
+                    <Circle 
+                      size={40} 
+                      backgroundColor={getRubroColor(selectedRecord.visitor_rubro)}
+                    >
+                      <Text fontSize={20}>{getRubroIcon(selectedRecord.visitor_rubro)}</Text>
+                    </Circle>
+                    <YStack flex={1} justifyContent="center">
+                      <Text fontSize="$2" color="$gray11" fontWeight="600">
+                        TIPO DE ACCESO
+                      </Text>
+                      <Text fontSize="$4" fontWeight="700" color={getRubroColor(selectedRecord.visitor_rubro)}>
+                        {getRubroText(selectedRecord.visitor_rubro)}
+                      </Text>
+                      <Text fontSize="$2" color="$gray10">
+                        Acceso mediante código QR
+                      </Text>
+                    </YStack>
+                  </XStack>
+                )}
+
+                {/* Información de usuario (para accesos APP) */}
+                {selectedRecord.accessor_type === 'user' && selectedRecord.user_name && (
                   <XStack space="$3" alignItems="center">
                     <Circle size={36} backgroundColor="$green3">
                       <User size={18} color="$green10" />
@@ -475,18 +581,18 @@ export const AccessHistoryScreen: React.FC<AccessHistoryScreenProps> = ({
                   </XStack>
                 )}
 
-                {/* Número de casa (si existe) */}
-                {selectedRecord.apartment_unit && (
+                {/* Dirección de casa (si existe) */}
+                {selectedRecord.house_address && (
                   <XStack space="$3" alignItems="center">
                     <Circle size={36} backgroundColor="$yellow3">
-                      <User size={18} color="$yellow10" />
+                      <Hash size={18} color="$yellow10" />
                     </Circle>
                     <YStack flex={1}>
                       <Text fontSize="$2" color="$gray11">
-                        Número de casa
+                        Dirección
                       </Text>
                       <Text fontSize="$3" fontWeight="600">
-                        {selectedRecord.apartment_unit}
+                        {selectedRecord.house_address}
                       </Text>
                     </YStack>
                   </XStack>

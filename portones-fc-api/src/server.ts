@@ -8,7 +8,7 @@ import { getAllGatesStatus } from './state/gates'
 // Initialize Fastify
 const fastify = Fastify({
   logger: {
-    level: 'error'
+    level: 'info'
   }
 })
 
@@ -139,11 +139,14 @@ fastify.get('/gates', async (request, reply) => {
 
     // Get all gates status with colonia info
     const allGatesStatus = getAllGatesStatus()
+    fastify.log.info({ allGatesStatus, userProfile }, '🔍 Gates and user data')
 
     // Get gates info from database with colonia
     const { data: gatesDb, error: gatesError } = await supabaseAdmin
       .from('gates')
       .select('id, name, enabled, type, colonia_id, colonias(id, nombre)')
+
+    fastify.log.info({ gatesDb, gatesError }, '🔍 Database gates query result')
 
     if (gatesError) {
       fastify.log.error({ error: gatesError }, 'Error fetching gates')
@@ -259,6 +262,7 @@ fastify.get('/access/history', async (request, reply) => {
 
     // Obtener user_ids de usuarios de la misma casa y colonia
     let allowedUserIds: string[] = []
+    let houseQrIds: string[] = []
     
     if (profile.role !== 'admin') {
       // Validar que el usuario tenga house_id y colonia_id
@@ -282,22 +286,48 @@ fastify.get('/access/history', async (request, reply) => {
       }
 
       allowedUserIds = (householdUsers || []).map((u: any) => u.id)
+
+      // Obtener todos los QR codes de la misma casa
+      const { data: houseQrs, error: qrError } = await supabaseAdmin
+        .from('visitor_qr')
+        .select('id')
+        .eq('house_id', profile.house_id)
+
+      if (qrError) {
+        fastify.log.error({ error: qrError }, 'Error fetching house QR codes')
+      } else {
+        houseQrIds = (houseQrs || []).map((qr: any) => qr.id)
+      }
     }
 
     let query = supabaseAdmin
       .from('access_logs')
-      .select('id, user_id, action, status, method, timestamp, gate_id', {
+      .select('id, user_id, qr_id, action, status, method, timestamp, gate_id', {
         count: 'exact'
       })
       .order('timestamp', { ascending: false })
       .limit(limit)
 
     if (profile.role !== 'admin') {
-      // Filtrar por los usuarios de la misma casa
-      if (allowedUserIds.length > 0) {
-        query = query.in('user_id', allowedUserIds)
+      // Filtrar por los usuarios de la misma casa O QR codes de la misma casa
+      if (allowedUserIds.length > 0 || houseQrIds.length > 0) {
+        // Construir filtro OR para incluir tanto user_id como qr_id
+        const userFilter = allowedUserIds.length > 0 
+          ? `user_id.in.(${allowedUserIds.join(',')})`
+          : null
+        const qrFilter = houseQrIds.length > 0
+          ? `qr_id.in.(${houseQrIds.join(',')})`
+          : null
+
+        if (userFilter && qrFilter) {
+          query = query.or(`${userFilter},${qrFilter}`)
+        } else if (userFilter) {
+          query = query.in('user_id', allowedUserIds)
+        } else if (qrFilter) {
+          query = query.in('qr_id', houseQrIds)
+        }
       } else {
-        // Si no hay usuarios en la casa, retornar vacío
+        // Si no hay usuarios ni QR codes en la casa, retornar vacío
         reply.send({
           records: [],
           total: 0
@@ -373,6 +403,25 @@ fastify.get('/access/history', async (request, reply) => {
       }
     }
 
+    // Obtener datos de visitor_qr para enriquecer los registros con qr_id
+    const qrIds = (logs ?? []).map((log: any) => log.qr_id).filter(Boolean)
+    let qrDataMap = new Map<string, { visitor_name: string; rubro: string; house_id: number }>()
+    
+    if (qrIds.length > 0) {
+      const { data: qrData } = await supabaseAdmin
+        .from('visitor_qr')
+        .select('id, invitado, rubro, house_id')
+        .in('id', qrIds)
+      
+      qrData?.forEach((qr: any) => {
+        qrDataMap.set(qr.id, { 
+          visitor_name: qr.invitado, 
+          rubro: qr.rubro,
+          house_id: qr.house_id
+        })
+      })
+    }
+
     const gatesMap = new Map<number, { name?: string; type?: string }>()
     gatesData?.forEach((g: any) => {
       gatesMap.set(g.id, { name: g.name, type: g.type })
@@ -382,6 +431,11 @@ fastify.get('/access/history', async (request, reply) => {
       const gateInfo = gatesMap.get(log.gate_id) || {}
       const profileInfo = profilesMap.get(log.user_id) || { house_address: null, full_name: null }
       const userName = profileInfo.full_name?.trim() || 'Usuario'
+      const qrInfo = log.qr_id ? qrDataMap.get(log.qr_id) : null
+
+      // Determinar nombre y tipo del acceso (usuario o visitante QR)
+      const accessorName = log.user_id ? userName : (qrInfo ? qrInfo.visitor_name : null)
+      const accessorType = log.user_id ? 'user' : 'visitor'
 
       return {
       id: log.id,
@@ -390,7 +444,11 @@ fastify.get('/access/history', async (request, reply) => {
       gate_type: gateInfo.type || 'ENTRADA',
       user_id: log.user_id,
       user_name: userName,
+      qr_id: log.qr_id,
       house_address: profileInfo.house_address ?? null,
+      accessor_name: accessorName,
+      accessor_type: accessorType,
+      visitor_rubro: qrInfo?.rubro || null,
       action: log.action === 'OPEN_GATE' ? 'OPEN' : 'CLOSE',
       timestamp: log.timestamp,
       method: log.method || 'APP',
@@ -1579,6 +1637,757 @@ fastify.post('/gate/close', async (request, reply) => {
         message: 'Failed to process gate close request'
       })
     }
+  }
+})
+
+// ==========================================
+// QR CODE MANAGEMENT ENDPOINTS
+// ==========================================
+
+// Policy definitions
+const QR_POLICIES = {
+  delivery_app: {
+    duration: 2 * 60 * 60 * 1000, // 2 horas
+    maxUses: 2,  // 1 visita (entrada + salida)
+    requiresId: false,
+    requiresName: true,
+    description: 'Repartidor de aplicación',
+    maxQRsPerHouse: null // Sin límite
+  },
+  family: {
+    duration: 365 * 24 * 60 * 60 * 1000, // 1 año
+    maxUses: 500, // 250 visitas (entrada + salida)
+    requiresId: true,
+    requiresName: true,
+    description: 'Familiar',
+    maxQRsPerHouse: 4 // Máximo 4
+  },
+  friend: {
+    duration: 24 * 60 * 60 * 1000, // 24 horas (default, se sobreescribe con customExpiration)
+    maxUses: 4, // 2 visitas (entrada + salida)
+    requiresId: false,
+    requiresName: true,
+    description: 'Amigo',
+    maxQRsPerHouse: 8 // Máximo 8
+  },
+  parcel: {
+    duration: 30 * 60 * 1000, // 30 minutos
+    maxUses: 2, // 1 visita
+    requiresId: false,
+    requiresName: true,
+    description: 'Paquetería',
+    maxQRsPerHouse: null // Sin límite
+  },
+  service: {
+    duration: 4 * 60 * 60 * 1000, // 4 horas (default, se sobreescribe con customExpiration)
+    maxUses: 20, // 10 visitas (entrada + salida)
+    requiresId: true,
+    requiresName: true,
+    description: 'Servicio (plomero, electricista, etc.)',
+    maxQRsPerHouse: 2 // Máximo 2
+  }
+} as const
+
+// Generate QR code
+fastify.post('/qr/generate', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { 
+      policyType, 
+      visitorName, 
+      idPhotoUrl
+    } = request.body as any
+
+    // Validate policy type
+    if (!policyType || !QR_POLICIES[policyType as keyof typeof QR_POLICIES]) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Invalid policy type. Valid types: ' + Object.keys(QR_POLICIES).join(', ')
+      })
+      return
+    }
+
+    const policy = QR_POLICIES[policyType as keyof typeof QR_POLICIES]
+
+    // Get user profile
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('house_id, colonia_id')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile || !profile.house_id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User must have a house assigned to generate QR codes'
+      })
+      return
+    }
+
+    // Validate required fields based on policy
+    if (policy.requiresName && !visitorName) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Visitor name is required for this policy'
+      })
+      return
+    }
+
+    if (policy.requiresId && !idPhotoUrl) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'ID photo is required for this policy'
+      })
+      return
+    }
+
+    // Validate QR limit per house for this policy type
+    if (policy.maxQRsPerHouse !== null) {
+      const { data: existingQRs, error: countError } = await supabaseAdmin
+        .from('visitor_qr')
+        .select('id', { count: 'exact', head: false })
+        .eq('house_id', profile.house_id)
+        .eq('rubro', policyType)
+        .eq('status', 'active')
+
+      if (countError) {
+        fastify.log.error({ error: countError }, 'Error checking QR limit')
+        reply.status(500).send({
+          error: 'Server Error',
+          message: 'Failed to validate QR limit'
+        })
+        return
+      }
+
+      const activeCount = existingQRs?.length || 0
+      if (activeCount >= policy.maxQRsPerHouse) {
+        reply.status(400).send({
+          error: 'Limit Exceeded',
+          message: `Ya tienes el máximo de ${policy.maxQRsPerHouse} QRs activos de tipo "${policy.description}". Elimina o espera a que expire alguno antes de crear uno nuevo.`,
+          currentCount: activeCount,
+          maxAllowed: policy.maxQRsPerHouse
+        })
+        return
+      }
+    }
+
+    // Generate unique short code (6-digit number)
+    const shortCode = Math.floor(100000 + Math.random() * 900000)
+
+    // Extraer customExpiration y customValidFrom si se proporcionan
+    const customExpiration = (request.body as any).customExpiration
+    const customValidFrom = (request.body as any).customValidFrom
+
+    // Calculate expiration
+    let expiresAt: Date
+    if (customExpiration) {
+      expiresAt = new Date(customExpiration)
+    } else {
+      expiresAt = new Date(Date.now() + policy.duration)
+    }
+
+    // Calculate valid_from (start date)
+    let validFrom: Date
+    if (customValidFrom) {
+      validFrom = new Date(customValidFrom)
+    } else {
+      // Por defecto, el QR es válido inmediatamente desde su creación
+      validFrom = new Date()
+    }
+
+    // Insert QR code into database
+    const { data: qrCode, error: qrError } = await supabaseAdmin
+      .from('visitor_qr')
+      .insert({
+        short_code: shortCode,
+        house_id: profile.house_id,
+        valid_from: validFrom.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        max_uses: policy.maxUses,
+        uses: 0,
+        status: 'active',
+        rubro: policyType,
+        invitado: visitorName || null,
+        url_ine: idPhotoUrl || null
+      })
+      .select()
+      .single()
+
+    if (qrError) {
+      fastify.log.error({ error: qrError }, 'Error creating QR code')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Failed to create QR code'
+      })
+      return
+    }
+
+    fastify.log.info(`QR code generated: ${shortCode} for user ${user.id}, policy: ${policyType}`)
+
+    reply.send({
+      success: true,
+      qrCode: {
+        id: qrCode.id,
+        shortCode: qrCode.short_code,
+        expiresAt: qrCode.expires_at,
+        maxUses: qrCode.max_uses,
+        policyType: qrCode.rubro,
+        visitorName: qrCode.invitado,
+        policyDescription: policy.description
+      }
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /qr/generate')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to generate QR code'
+    })
+  }
+})
+
+// List user's QR codes
+fastify.get('/qr/list', async (request, reply) => {
+  try {
+    const user = (request as any).user
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || !profile.house_id) {
+      reply.send({ qrCodes: [] })
+      return
+    }
+
+    // Exclude revoked QR codes from listing (show active and expired)
+    const { data: qrCodes, error } = await supabaseAdmin
+      .from('visitor_qr')
+      .select('*')
+      .eq('house_id', profile.house_id)
+      .neq('status', 'revoked')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      fastify.log.error({ error }, 'Error fetching QR codes')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Failed to fetch QR codes'
+      })
+      return
+    }
+
+    // Enrich QR codes with additional info
+    const enrichedQRs = qrCodes?.map((qr: any) => {
+      const now = new Date()
+      const expiresAt = new Date(qr.expires_at)
+      const validFrom = qr.valid_from ? new Date(qr.valid_from) : null
+      const isExpired = expiresAt < now
+      const isFullyUsed = qr.uses >= qr.max_uses
+      const isVisitorInside = qr.uses % 2 === 1
+      const remainingVisits = Math.floor((qr.max_uses - qr.uses) / 2)
+      const isScheduled = validFrom && validFrom > now
+      
+      // Determine effective status
+      let effectiveStatus = qr.status
+      if (qr.status === 'active') {
+        if (isScheduled) {
+          // QR programado que aún no inicia su período de validez
+          effectiveStatus = 'scheduled'
+        } else if (isFullyUsed) {
+          // Priorizar "completado" sobre "expirado" cuando se agotaron las visitas
+          effectiveStatus = 'completed'
+        } else if (isExpired) {
+          effectiveStatus = 'expired'
+        }
+      }
+
+      // Get policy info
+      const policyInfo = QR_POLICIES[qr.rubro as keyof typeof QR_POLICIES]
+
+      return {
+        ...qr,
+        effectiveStatus,
+        isVisitorInside,
+        remainingVisits,
+        totalVisits: Math.floor(qr.max_uses / 2),
+        usedVisits: Math.floor(qr.uses / 2),
+        policyDescription: policyInfo?.description || qr.rubro,
+        isExpired,
+        isFullyUsed,
+        isScheduled
+      }
+    }) || []
+
+    reply.send({ qrCodes: enrichedQRs })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /qr/list')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to list QR codes'
+    })
+  }
+})
+
+// Note: deactivate status is set automatically when QR reaches max_uses
+// Users cannot manually deactivate, only delete
+
+// Delete QR code (soft delete - keeps in DB but hidden)
+fastify.post('/qr/delete', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { qrId } = request.body as any
+
+    if (!qrId) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'qrId is required'
+      })
+      return
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || !profile.house_id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User must have a house assigned'
+      })
+      return
+    }
+
+    // Update QR status to revoked (soft delete - hidden from list but kept in DB)
+    const { error } = await supabaseAdmin
+      .from('visitor_qr')
+      .update({ status: 'revoked' })
+      .eq('id', qrId)
+      .eq('house_id', profile.house_id)
+
+    if (error) {
+      fastify.log.error({ error }, 'Error deleting QR code')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Failed to delete QR code'
+      })
+      return
+    }
+
+    reply.send({
+      success: true,
+      message: 'QR code deleted successfully'
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /qr/delete')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to delete QR code'
+    })
+  }
+})
+
+// Legacy endpoint for backward compatibility - redirects to delete
+fastify.post('/qr/revoke', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { qrId } = request.body as any
+
+    if (!qrId) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'qrId is required'
+      })
+      return
+    }
+
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || !profile.house_id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User must have a house assigned'
+      })
+      return
+    }
+
+    fastify.log.info({ qrId, userId: user.id, houseId: profile.house_id }, 'Deleting QR code via revoke endpoint')
+
+    // Update QR status to revoked (soft delete)
+    const { data, error } = await supabaseAdmin
+      .from('visitor_qr')
+      .update({ status: 'revoked' })
+      .eq('id', qrId)
+      .eq('house_id', profile.house_id)
+      .select()
+
+    if (error) {
+      fastify.log.error({ error, qrId }, 'Error deleting QR code')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Failed to delete QR code'
+      })
+      return
+    }
+
+    if (!data || data.length === 0) {
+      fastify.log.warn({ qrId, houseId: profile.house_id }, 'QR code not found or does not belong to user')
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'QR code not found'
+      })
+      return
+    }
+
+    fastify.log.info({ qrId, data }, 'QR code successfully deleted')
+
+    reply.send({
+      success: true,
+      message: 'QR code deleted successfully'
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /qr/revoke')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to delete QR code'
+    })
+  }
+})
+
+// Force exit for visitor still inside
+fastify.post('/qr/force-exit', async (request, reply) => {
+  try {
+    const user = (request as any).user
+    const { qrId } = request.body as any
+
+    if (!qrId) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'qrId is required'
+      })
+      return
+    }
+
+    // Get user's house
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('house_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || !profile.house_id) {
+      reply.status(403).send({
+        error: 'Forbidden',
+        message: 'User profile not found'
+      })
+      return
+    }
+
+    // Get QR code and verify ownership
+    const { data: qrCode, error: qrError } = await supabaseAdmin
+      .from('visitor_qr')
+      .select('*')
+      .eq('id', qrId)
+      .eq('house_id', profile.house_id)
+      .single()
+
+    if (qrError || !qrCode) {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: 'QR code not found or does not belong to your house'
+      })
+      return
+    }
+
+    // Check if QR is in valid state
+    if (qrCode.status !== 'active') {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'QR code is not active'
+      })
+      return
+    }
+
+    // Check if QR has started its validity period
+    if (qrCode.valid_from && new Date(qrCode.valid_from) > new Date()) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'QR code is not yet valid'
+      })
+      return
+    }
+
+    // Check if visitor is actually inside (odd uses count)
+    const isVisitorInside = qrCode.uses % 2 === 1
+
+    if (!isVisitorInside) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Visitor is not currently inside'
+      })
+      return
+    }
+
+    // Increment uses to force exit
+    const newUses = qrCode.uses + 1
+    const { error: updateError } = await supabaseAdmin
+      .from('visitor_qr')
+      .update({ uses: newUses })
+      .eq('id', qrId)
+
+    if (updateError) {
+      fastify.log.error({ error: updateError }, 'Error forcing exit')
+      reply.status(500).send({
+        error: 'Server Error',
+        message: 'Failed to force exit'
+      })
+      return
+    }
+
+    // Log the forced exit in access_logs
+    await supabaseAdmin
+      .from('access_logs')
+      .insert({
+        gate_id: 1, // Default gate, can be updated if needed
+        qr_id: qrId,
+        action: 'CLOSE',
+        method: 'APP',
+        timestamp: new Date().toISOString()
+      })
+
+    reply.send({
+      success: true,
+      message: 'Visitor exit confirmed successfully'
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /qr/force-exit')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to force exit'
+    })
+  }
+})
+
+// Open gate with QR code
+fastify.post('/gate/open-with-qr', async (request, reply) => {
+  try {
+    const { shortCode } = request.body as any
+
+    if (!shortCode) {
+      reply.status(400).send({
+        error: 'Bad Request',
+        message: 'shortCode is required'
+      })
+      return
+    }
+
+    // Validate QR code first
+    const { data: qrCode, error: qrError } = await supabaseAdmin
+      .from('visitor_qr')
+      .select('*, houses(colonia_id)')
+      .eq('short_code', shortCode)
+      .single()
+
+    if (qrError || !qrCode) {
+      reply.status(404).send({
+        success: false,
+        message: 'QR code not found'
+      })
+      return
+    }
+
+    // Check QR status - only 'active' QRs can be used
+    if (qrCode.status === 'revoked') {
+      reply.status(403).send({
+        success: false,
+        message: 'QR code has been revoked'
+      })
+      return
+    }
+
+    if (qrCode.status === 'expired') {
+      reply.status(403).send({
+        success: false,
+        message: 'QR code has expired'
+      })
+      return
+    }
+
+    if (qrCode.status !== 'active') {
+      reply.status(403).send({
+        success: false,
+        message: `QR code is ${qrCode.status}`
+      })
+      return
+    }
+
+    // Check if QR has started its validity period
+    if (qrCode.valid_from && new Date(qrCode.valid_from) > new Date()) {
+      reply.status(403).send({
+        success: false,
+        message: 'QR code is not yet valid. It will be active from ' + new Date(qrCode.valid_from).toLocaleString('es-MX')
+      })
+      return
+    }
+
+    // Check expiration
+    if (new Date(qrCode.expires_at) < new Date()) {
+      await supabaseAdmin
+        .from('visitor_qr')
+        .update({ status: 'expired' })
+        .eq('id', qrCode.id)
+
+      reply.status(403).send({
+        success: false,
+        message: 'QR code has expired'
+      })
+      return
+    }
+
+    // Check max uses and auto-expire if reached
+    if (qrCode.uses >= qrCode.max_uses) {
+      // Auto-expire QR when max uses reached (will still show in history)
+      await supabaseAdmin
+        .from('visitor_qr')
+        .update({ status: 'expired' })
+        .eq('id', qrCode.id)
+
+      reply.status(403).send({
+        success: false,
+        message: 'QR code has reached maximum uses'
+      })
+      return
+    }
+
+    // ENTRY/EXIT LOGIC - Determine required gate type
+    const isVisitorInside = qrCode.uses % 2 === 1
+    const requiredGateType = isVisitorInside ? 'SALIDA' : 'ENTRADA'
+
+    // Find appropriate gate based on visitor status and colonia
+    const { data: availableGates, error: gatesError } = await supabaseAdmin
+      .from('gates')
+      .select('id, name, type, enabled, colonia_id')
+      .eq('type', requiredGateType)
+      .eq('enabled', true)
+
+    if (gatesError || !availableGates || availableGates.length === 0) {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: `No enabled ${requiredGateType} gate found`
+      })
+      return
+    }
+
+    // Filter by colonia if QR has colonia
+    let gate = availableGates.find(g => g.colonia_id === qrCode.houses?.colonia_id)
+    
+    // If no gate found for colonia, use any available gate of the right type
+    if (!gate) {
+      gate = availableGates[0]
+    }
+
+    // Final safety check (should never happen due to earlier validation)
+    if (!gate) {
+      reply.status(500).send({
+        success: false,
+        message: 'Gate selection failed unexpectedly'
+      })
+      return
+    }
+
+    const gateId = gate.id
+
+    // Increment QR usage
+    const newUses = qrCode.uses + 1
+    await supabaseAdmin
+      .from('visitor_qr')
+      .update({ uses: newUses })
+      .eq('id', qrCode.id)
+
+    // Publish MQTT command
+    const client = await connectMQTT()
+    const payload = {
+      action: 'OPEN',
+      gateId,
+      timestamp: new Date().toISOString(),
+      qrCode: shortCode,
+      visitorName: qrCode.invitado,
+      accessType: requiredGateType
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      client.publish(
+        'portones/gate/command',
+        JSON.stringify(payload),
+        { qos: 1 },
+        (error) => {
+          if (error) {
+            fastify.log.error({ error }, 'MQTT publish error')
+            reject(error)
+          } else {
+            fastify.log.info('QR gate command published successfully')
+            resolve()
+          }
+        }
+      )
+    })
+
+    // Log successful QR access
+    const insertData = {
+      user_id: null, // QR access doesn't have a user_id
+      qr_id: qrCode.id, // FK reference to visitor_qr table
+      action: 'OPEN_GATE',
+      status: 'SUCCESS',
+      method: 'QR',
+      gate_id: gateId,
+      ip_address: request.ip
+    }
+    
+    fastify.log.info({ insertData }, 'Attempting to insert QR access log')
+    
+    const { data: logData, error: logError } = await supabaseAdmin
+      .from('access_logs')
+      .insert(insertData)
+    
+    if (logError) {
+      fastify.log.error({ logError, insertData }, 'Failed to insert QR access log')
+    } else {
+      fastify.log.info({ logData }, 'Successfully inserted QR access log')
+    }
+
+    const newStatus = newUses % 2 === 1 ? 'inside' : 'outside'
+
+    fastify.log.info(`Gate ${gateId} opened with QR ${shortCode}. Visitor: ${qrCode.invitado}, Action: ${requiredGateType}, New status: ${newStatus}`)
+
+    reply.send({
+      success: true,
+      message: `Gate opened for ${requiredGateType}`,
+      gateId,
+      gateName: gate.name,
+      gateType: gate.type,
+      visitor: {
+        name: qrCode.invitado,
+        action: requiredGateType,
+        status: newStatus,
+        uses: newUses,
+        maxUses: qrCode.max_uses,
+        remainingVisits: Math.floor((qrCode.max_uses - newUses) / 2)
+      },
+      timestamp: payload.timestamp
+    })
+  } catch (error) {
+    fastify.log.error({ error }, 'Error in /gate/open-with-qr')
+    reply.status(500).send({
+      error: 'Server Error',
+      message: 'Failed to open gate with QR'
+    })
   }
 })
 

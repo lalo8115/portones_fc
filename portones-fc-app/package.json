@@ -6,7 +6,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web",
+    "web": "expo start --web --port 8081",
     "typecheck": "node --stack_size=16384 ./node_modules/typescript/lib/tsc.js -p tsconfig.json --noEmit",
     "build": "npx expo export --platform web"
   },
@@ -29,6 +29,7 @@
     "expo-sensors": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "^15.0.10",
+    "html5-qrcode": "^2.3.8",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
