@@ -269,9 +269,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   authToken,
   onNavigateToPayment
 }) => {
-  console.log('🔑 authToken en GateControl:', authToken ? `${authToken.substring(0, 20)}...` : 'UNDEFINED')
-  console.log('🌐 apiUrl en GateControl:', apiUrl)
-  
+
   const { signOut, user, profile } = useAuth()
   const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [showCommunityForum, setShowCommunityForum] = useState(false)
@@ -614,6 +612,7 @@ export const GateControl: React.FC<GateControlProps> = ({
       //   icon: '🔔',
       //   color: '$yellow10',
       // },
+
       {
         id: 'support',
         title: 'Soporte',
@@ -657,6 +656,8 @@ export const GateControl: React.FC<GateControlProps> = ({
                   setShowMarketplace(true)
                 } else if (option.id === 'admin') {
                   setShowAdminPanel(true)
+                } else if (option.id === 'qr') {
+                  setCurrentScreen(2)
                 } else if (option.id === 'support') {
                   setShowSupport(true)
                 } else {
@@ -1246,6 +1247,18 @@ export const GateControl: React.FC<GateControlProps> = ({
     // Políticas de QR (importadas desde configuración centralizada)
     const qrPolicies = QR_POLICIES
 
+    // Helper function para validar y convertir fechas de forma segura
+    const isValidDate = (date: Date): boolean => {
+      return date instanceof Date && !isNaN(date.getTime())
+    }
+
+    const safeToISOString = (date: Date, fallback = ''): string => {
+      if (!isValidDate(date)) {
+        return fallback
+      }
+      return date.toISOString()
+    }
+
     // Función para seleccionar/capturar imagen
     const pickImage = () => {
       if (Platform.OS !== 'web') {
@@ -1329,10 +1342,24 @@ export const GateControl: React.FC<GateControlProps> = ({
     }
 
     const handleGenerateQR = async () => {
-      if (!selectedPolicy) return
+      console.log('🔵 handleGenerateQR called')
+      console.log('selectedPolicy:', selectedPolicy)
+      console.log('visitorName:', visitorName)
+      console.log('idPhotoUrl:', idPhotoUrl)
+      console.log('apiUrl:', apiUrl)
+      console.log('authToken:', authToken ? '***' : 'UNDEFINED')
+      
+      if (!selectedPolicy) {
+        console.warn('⚠️ No selectedPolicy, returning')
+        return
+      }
 
       const policy = qrPolicies.find(p => p.id === selectedPolicy)
-      if (!policy) return
+      console.log('Found policy:', policy)
+      if (!policy) {
+        console.warn('⚠️ Policy not found, returning')
+        return
+      }
 
       // Validaciones específicas por tipo
       if (policy.id === 'family') {
@@ -1462,6 +1489,11 @@ export const GateControl: React.FC<GateControlProps> = ({
         } else if (policy.id === 'friend') {
           requestData.visitorName = visitorName.trim()
           // Calcular expiración: fecha seleccionada a las 23:59 (usar componentes de fecha directamente)
+          if (!isValidDate(friendVisitDate)) {
+            Alert.alert('Error', 'Por favor, ingresa una fecha válida para el fin de visita.')
+            setIsGenerating(false)
+            return
+          }
           const dateStr = friendVisitDate.toISOString().split('T')[0]
           const expirationDate = new Date(dateStr + 'T23:59:59')
           requestData.customExpiration = expirationDate.toISOString()
@@ -1470,6 +1502,11 @@ export const GateControl: React.FC<GateControlProps> = ({
         } else if (policy.id === 'parcel') {
           requestData.visitorName = appName.trim()
           // Fecha de inicio: 00:00 del día de inicio (usar componentes de fecha directamente)
+          if (!isValidDate(deliveryDateStart) || !isValidDate(deliveryDateEnd)) {
+            Alert.alert('Error', 'Por favor, ingresa fechas válidas para el inicio y fin de entrega.')
+            setIsGenerating(false)
+            return
+          }
           const startDateStr = deliveryDateStart.toISOString().split('T')[0]
           const validFromDate = new Date(startDateStr + 'T00:00:00')
           requestData.customValidFrom = validFromDate.toISOString()
@@ -1528,20 +1565,7 @@ export const GateControl: React.FC<GateControlProps> = ({
         const data = await response.json()
         setGeneratedQR(data.qrCode)
 
-        // Mostrar mensaje de éxito
-        Alert.alert(
-          '✅ QR Generado',
-          `QR creado exitosamente para: ${policy.description}\n\nCódigo: ${data.qrCode.shortCode}`,
-          [{ text: 'OK' }]
-        )
-
-        // Limpiar formulario
-        setVisitorName('')
-        setIdPhotoUrl(null)
-        setImagePreviewUrl(null)
-        setCompanyName('')
-        setAppName('')
-        setServiceDuration(4)
+        // No limpiar formulario - dejar que el usuario vea el QR generado
       } catch (error) {
         console.error('Error generating QR:', error)
         Alert.alert(
@@ -1866,8 +1890,15 @@ export const GateControl: React.FC<GateControlProps> = ({
                       <Card bordered padding='$3'>
                         <input
                           type="date"
-                          value={friendVisitDate.toISOString().split('T')[0]}
-                          onChange={(e: any) => setFriendVisitDate(new Date(e.target.value))}
+                          value={isValidDate(friendVisitDate) ? friendVisitDate.toISOString().split('T')[0] : ''}
+                          onChange={(e: any) => {
+                            const newDate = new Date(e.target.value)
+                            if (isValidDate(newDate)) {
+                              setFriendVisitDate(newDate)
+                            } else {
+                              Alert.alert('Error', 'Por favor, ingresa una fecha válida.')
+                            }
+                          }}
                           style={{
                             border: 'none',
                             outline: 'none',
