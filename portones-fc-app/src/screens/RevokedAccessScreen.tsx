@@ -16,7 +16,7 @@ export const RevokedAccessScreen: React.FC<RevokedAccessScreenProps> = ({
   authToken,
   onNavigateToPayment
 }) => {
-  const { signOut, user, profile } = useAuth()
+  const { signOut, profile } = useAuth()
 
   // Query para obtener el estado de pago
   const { data: paymentStatus } = useQuery({
@@ -72,7 +72,7 @@ export const RevokedAccessScreen: React.FC<RevokedAccessScreenProps> = ({
       >
         <YStack space='$1'>
           <Text fontSize='$4' fontWeight='600' color='$color'>
-            {user?.email}
+            {profile?.full_name || 'Usuario'}
           </Text>
           {profile?.house && (
             <Text fontSize='$3' color='$gray11'>

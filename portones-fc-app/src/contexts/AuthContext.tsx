@@ -15,11 +15,13 @@ interface Colonia {
   id: string
   nombre: string
   maintenance_monthly_amount?: number | null
+  payment_due_day?: number | null
 }
 
 interface UserProfile {
   id: string
   email: string
+  full_name?: string | null
   role: 'admin' | 'user' | 'revoked'
   house_id: string | null
   colonia_id: string | null
@@ -37,7 +39,7 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
   joinColonia: (coloniaCode: string) => Promise<UserProfile>
-  updateApartmentUnit: (street: string, externalNumber: string, numberOfPeople?: number) => Promise<UserProfile>
+  updateApartmentUnit: (street: string, externalNumber: string, numberOfPeople?: number, fullName?: string) => Promise<UserProfile>
   signOut: () => Promise<void>
   loading: boolean
   refreshProfile: () => Promise<void>
@@ -68,7 +70,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     reject: (error: any) => void
   } | null>(null)
 
+  // For development, use localhost. In production, use the deployed API URL
   const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
+  
+  console.log('API URL:', apiUrl, 'ENV:', process.env.EXPO_PUBLIC_API_URL)
 
   const fetchProfile = async (userId: string, token: string) => {
     try {
@@ -257,9 +262,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return data
   }
 
-  const updateApartmentUnit = async (street: string, externalNumber: string, numberOfPeople: number = 1) => {
+  const updateApartmentUnit = async (
+    street: string,
+    externalNumber: string,
+    numberOfPeople: number = 1,
+    fullName?: string
+  ) => {
     if (!session?.access_token) {
       throw new Error('Sesión no encontrada, vuelve a iniciar sesión')
+    }
+
+    const payload: {
+      street: string
+      external_number: string
+      number_of_people: number
+      full_name?: string
+    } = {
+      street,
+      external_number: externalNumber,
+      number_of_people: numberOfPeople
+    }
+
+    if (fullName?.trim()) {
+      payload.full_name = fullName.trim()
     }
 
     const response = await fetch(`${apiUrl}/profile/apartment-unit`, {
@@ -268,11 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         Authorization: `Bearer ${session.access_token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ 
-        street, 
-        external_number: externalNumber,
-        number_of_people: numberOfPeople 
-      })
+      body: JSON.stringify(payload)
     })
 
     if (!response.ok) {
