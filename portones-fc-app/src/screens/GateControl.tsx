@@ -2440,7 +2440,7 @@ export const GateControl: React.FC<GateControlProps> = ({
           borderBottomColor='rgba(255,255,255,0.10)'
         >
           <Text fontSize='$7' fontWeight='900' color='white'>
-            Portón Inteligente
+            Portón Inteligente v1
           </Text>
           <XStack space='$2'>
             <Button
