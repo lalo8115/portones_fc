@@ -477,7 +477,7 @@ export const GateControl: React.FC<GateControlProps> = ({
     }
 
     return (
-    <YStack padding='$4' space='$4' >
+    <YStack padding='$4' space='$4' userSelect="none">
         <XStack space='$3' alignItems='flex-start' height={"18%"} $heightSm={{ display: 'none' }}>
           <Card
                // max height 700px
@@ -2425,7 +2425,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   }
 
   return (
-    <YStack flex={1} backgroundColor={currentScreen === 1 ? '#000' : '$background'} >
+    <YStack flex={1} backgroundColor={currentScreen === 1 ? '#000' : '$background'} userSelect="none">
       {/* Header (solo estilo especial en la pantalla central de Portones) */}
       {currentScreen === 1 ? (
         <XStack
@@ -2440,7 +2440,7 @@ export const GateControl: React.FC<GateControlProps> = ({
           borderBottomColor='rgba(255,255,255,0.10)'
         >
           <Text fontSize='$7' fontWeight='900' color='white'>
-            Portón Inteligente v1
+            Portón Inteligente v1.1
           </Text>
           <XStack space='$2'>
             <Button
