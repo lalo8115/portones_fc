@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { ScrollView, View, Animated, PanResponder, Dimensions, Alert, Linking, Platform, Image } from 'react-native'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, YStack, Text, Spinner, Circle, XStack, Card, Input } from 'tamagui'
-import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, Home, MapPin, Camera } from '@tamagui/lucide-icons'
+import { Lock, Unlock, LogOut, RefreshCw, ChevronLeft, ChevronRight, Home, MapPin, Camera, DoorOpen, CreditCard,MessageSquareMore,ShoppingBag,ClipboardList,Shield,MessagesSquare} from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
 import QRCode from 'react-native-qrcode-svg'
 import { CameraView, useCameraPermissions } from 'expo-camera'
@@ -208,8 +208,6 @@ const GateCard: React.FC<GateCardProps> = ({
       padding='$4'
       space='$3'
       flex={1}
-      minHeight={200}
-      $heightSm={{ size: '$3', padding: '$3', space: '$2', minHeight: 160 }}
     >
       <YStack space='$3' flex={1} justifyContent='space-between'>
         <YStack space='$2' alignItems='center'>
@@ -269,9 +267,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   authToken,
   onNavigateToPayment
 }) => {
-  console.log('🔑 authToken en GateControl:', authToken ? `${authToken.substring(0, 20)}...` : 'UNDEFINED')
-  console.log('🌐 apiUrl en GateControl:', apiUrl)
-  
+
   const { signOut, user, profile } = useAuth()
   const [showAccessHistory, setShowAccessHistory] = useState(false)
   const [showCommunityForum, setShowCommunityForum] = useState(false)
@@ -446,43 +442,111 @@ export const GateControl: React.FC<GateControlProps> = ({
   }, [currentScreen, screenWidth, slideAnim])
 
   // Componente para pantalla principal de portones
-  const GatesScreen = () => (
+  const GatesScreen = () => {
+    const [isPressingButton, setIsPressingButton] = useState(false)
+    const fillAnim = useRef(new Animated.Value(0)).current
+
+    const handleButtonPressIn = () => {
+      setIsPressingButton(true)
+      fillAnim.setValue(0)
+      Animated.timing(fillAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: false
+      }).start()
+    }
+
+    const handleButtonPressOut = () => {
+      setIsPressingButton(false)
+      Animated.timing(fillAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: false
+      }).start()
+    }
+
+    return (
     <YStack padding='$4' space='$4' >
-      <Card
-        $heightSm={{ display: 'none' }}   // max height 700px
-        elevate
-        bordered
-        padding='$4'
-        backgroundColor='rgba(0,0,0,0.35)'
-        borderColor='rgba(255,255,255,0.14)'
-        height={"18%"}
+        <XStack space='$3' alignItems='flex-start' height={"18%"} $heightSm={{ display: 'none' }}>
+          <Card
+               // max height 700px
+            elevate
+            bordered
+            padding='$4'
+            backgroundColor='rgba(0,0,0,0.35)'
+            borderColor='rgba(255,255,255,0.14)'
+            
+            width={'65%'}
 
-      >
-        <YStack space='$2' >
-          <Text fontSize='100%' fontWeight='800' color='white'>
-            {profile?.full_name || 'Usuario'}
-          </Text>
-
-          {profile?.colonia?.nombre && (
-            <XStack alignItems='center' gap='$2'>
-              <MapPin size={16} color='rgba(120, 210, 255, 0.95)' />
-              <Text fontSize='100%' color='rgba(180, 235, 255, 0.95)' fontWeight='700'>
-                {profile.colonia.nombre}
+          >
+            <YStack space='$2' >
+              <Text fontSize='100%' fontWeight='800' color='white'>
+                {profile?.full_name || 'Usuario'}
               </Text>
-            </XStack>
-          )}
 
-          {profile?.house && (
-            <XStack alignItems='center' gap='$2'>
-              <Home size={16} color='rgba(255,255,255,0.92)' />
-              <Text fontSize='100%' color='rgba(255,255,255,0.92)'>
-                {profile.house.street} {profile.house.external_number}
+              {profile?.colonia?.nombre && (
+                <XStack alignItems='center' gap='$2'>
+                  <MapPin size={16} color='rgba(120, 210, 255, 0.95)' />
+                  <Text fontSize='100%' color='rgba(180, 235, 255, 0.95)' fontWeight='700'>
+                    {profile.colonia.nombre}
+                  </Text>
+                </XStack>
+              )}
+
+              {profile?.house && (
+                <XStack alignItems='center' gap='$2'>
+                  <Home size={16} color='rgba(255,255,255,0.92)' />
+                  <Text fontSize='100%' color='rgba(255,255,255,0.92)'>
+                    {profile.house.street} {profile.house.external_number}
+                  </Text>
+                </XStack>
+              )}
+            </YStack>
+          </Card>
+
+          <YStack position='relative' height={'100%'} width={"30%"}>
+            <Animated.View
+              style={{
+                position: 'absolute',
+                width: fillAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%']
+                }),
+                height: '100%',
+                backgroundColor: 'rgba(34, 197, 94, 0.3)',
+                borderRadius: 8,
+                left: 0,
+                top: 0,
+                zIndex: 0
+              }}
+            />
+            <Button
+              height={'100%'}
+              elevate
+              bordered
+              paddingHorizontal='$4'
+              backgroundColor='rgba(0, 0, 0, 0.35)'
+              borderColor='rgba(255, 255, 255, 0.14)'
+              pressStyle={{ scale: 0.95, opacity: 0.8 }}
+              width="100%"
+              zIndex={1}
+              onPressIn={handleButtonPressIn}
+              onPressOut={handleButtonPressOut}
+              onPress={() => {
+                // Función a implementar
+              }}
+            >
+              <YStack  alignItems='center'>
+              <DoorOpen size={34} color='$color'  />
+              <Text color='white' fontWeight='700' fontSize='$4'>
+                Entrada {"\n"}
+                Peatonal
               </Text>
-            </XStack>
-          )}
-        </YStack>
-      </Card>
-
+              </YStack>
+            </Button>
+          </YStack>
+        </XStack>
+        
       {isLoading ? (
         <YStack flex={1} justifyContent='center' alignItems='center' paddingVertical='$10'>
           <Spinner size='large' color='$blue10' />
@@ -559,17 +623,27 @@ export const GateControl: React.FC<GateControlProps> = ({
         </YStack>
       )}
     </YStack>
-  )
+    )
+  }
 
   const MenuOptionsList = () => {
     const isPaid = paymentStatus?.isPaid ?? false
+    const iconMap = {
+      CreditCard,
+      MessageSquareMore,
+      ShoppingBag,
+      ClipboardList,
+      Shield,
+      MessagesSquare
+    }
 
+    
     const menuOptions = [
       {
         id: 'payment',
         title: 'Estado de Pago',
         description: 'Ver estado de cuota de mantenimiento',
-        icon: '💳',
+        icon: 'CreditCard',
         color: '$blue10',
         badge: !isPaid ? 'Pendiente' : 'Al corriente',
         badgeColor: !isPaid ? '$red10' : '$green10',
@@ -578,21 +652,21 @@ export const GateControl: React.FC<GateControlProps> = ({
         id: 'colonia',
         title: 'Comunidad',
         description: 'Eventos, mensajes y estados de cuenta de la colonia',
-        icon: '💬',
+        icon: 'MessagesSquare',
         color: '$purple10',
       },
       {
         id: 'marketplace',
         title: 'Marketplace',
         description: 'Compra y vende entre vecinos',
-        icon: '🛒',
+        icon: 'ShoppingBag',
         color: '$green10',
       },
       {
         id: 'history',
         title: 'Historial de Accesos',
         description: 'Ver registro de aperturas del portón',
-        icon: '📋',
+        icon: 'ClipboardList',
         color: '$orange10',
       },
       ...(isAdmin
@@ -601,7 +675,7 @@ export const GateControl: React.FC<GateControlProps> = ({
               id: 'admin',
               title: 'Panel Admin',
               description: 'Accesos y pagos de toda la privada',
-              icon: '🛡️',
+              icon: 'Shield',
               color: '$red10',
             }
           ]
@@ -614,11 +688,12 @@ export const GateControl: React.FC<GateControlProps> = ({
       //   icon: '🔔',
       //   color: '$yellow10',
       // },
+
       {
         id: 'support',
         title: 'Soporte',
         description: 'Ayuda y contacto',
-        icon: '💬',
+        icon: 'MessageSquareMore',
         color: '$gray10',
       },
 
@@ -637,13 +712,16 @@ export const GateControl: React.FC<GateControlProps> = ({
 
         {/* Lista de opciones */}
         <YStack space='$2.5'>
-          {menuOptions.map((option) => (
+          {menuOptions.map((option) => {
+            const IconComponent = iconMap[option.icon as keyof typeof iconMap]
+            return (
             <Card
               key={option.id}
               elevate
               size='$3.5'
               bordered
               padding='$3.5'
+              height={"15%"}
               $heightSm={{ size: '$3', padding: '$3' }}
               pressStyle={{ scale: 0.97, opacity: 0.8 }}
               onPress={() => {
@@ -657,6 +735,8 @@ export const GateControl: React.FC<GateControlProps> = ({
                   setShowMarketplace(true)
                 } else if (option.id === 'admin') {
                   setShowAdminPanel(true)
+                } else if (option.id === 'qr') {
+                  setCurrentScreen(2)
                 } else if (option.id === 'support') {
                   setShowSupport(true)
                 } else {
@@ -674,9 +754,9 @@ export const GateControl: React.FC<GateControlProps> = ({
                   elevate
                   $heightSm={{ size: 44 }}
                 >
-                  <Text fontSize='$6' $heightSm={{ fontSize: '$5' }}>
-                    {option.icon}
-                  </Text>
+
+                  <IconComponent size={25}  />
+
                 </Circle>
                 <YStack flex={1} space='$1'>
                   <XStack justifyContent='space-between' alignItems='center'>
@@ -711,7 +791,7 @@ export const GateControl: React.FC<GateControlProps> = ({
                 </Text>
               </XStack>
             </Card>
-          ))}
+          )})}
         </YStack>
       </YStack>
     )
@@ -1246,6 +1326,18 @@ export const GateControl: React.FC<GateControlProps> = ({
     // Políticas de QR (importadas desde configuración centralizada)
     const qrPolicies = QR_POLICIES
 
+    // Helper function para validar y convertir fechas de forma segura
+    const isValidDate = (date: Date): boolean => {
+      return date instanceof Date && !isNaN(date.getTime())
+    }
+
+    const safeToISOString = (date: Date, fallback = ''): string => {
+      if (!isValidDate(date)) {
+        return fallback
+      }
+      return date.toISOString()
+    }
+
     // Función para seleccionar/capturar imagen
     const pickImage = () => {
       if (Platform.OS !== 'web') {
@@ -1329,10 +1421,24 @@ export const GateControl: React.FC<GateControlProps> = ({
     }
 
     const handleGenerateQR = async () => {
-      if (!selectedPolicy) return
+      console.log('🔵 handleGenerateQR called')
+      console.log('selectedPolicy:', selectedPolicy)
+      console.log('visitorName:', visitorName)
+      console.log('idPhotoUrl:', idPhotoUrl)
+      console.log('apiUrl:', apiUrl)
+      console.log('authToken:', authToken ? '***' : 'UNDEFINED')
+      
+      if (!selectedPolicy) {
+        console.warn('⚠️ No selectedPolicy, returning')
+        return
+      }
 
       const policy = qrPolicies.find(p => p.id === selectedPolicy)
-      if (!policy) return
+      console.log('Found policy:', policy)
+      if (!policy) {
+        console.warn('⚠️ Policy not found, returning')
+        return
+      }
 
       // Validaciones específicas por tipo
       if (policy.id === 'family') {
@@ -1462,6 +1568,11 @@ export const GateControl: React.FC<GateControlProps> = ({
         } else if (policy.id === 'friend') {
           requestData.visitorName = visitorName.trim()
           // Calcular expiración: fecha seleccionada a las 23:59 (usar componentes de fecha directamente)
+          if (!isValidDate(friendVisitDate)) {
+            Alert.alert('Error', 'Por favor, ingresa una fecha válida para el fin de visita.')
+            setIsGenerating(false)
+            return
+          }
           const dateStr = friendVisitDate.toISOString().split('T')[0]
           const expirationDate = new Date(dateStr + 'T23:59:59')
           requestData.customExpiration = expirationDate.toISOString()
@@ -1470,6 +1581,11 @@ export const GateControl: React.FC<GateControlProps> = ({
         } else if (policy.id === 'parcel') {
           requestData.visitorName = appName.trim()
           // Fecha de inicio: 00:00 del día de inicio (usar componentes de fecha directamente)
+          if (!isValidDate(deliveryDateStart) || !isValidDate(deliveryDateEnd)) {
+            Alert.alert('Error', 'Por favor, ingresa fechas válidas para el inicio y fin de entrega.')
+            setIsGenerating(false)
+            return
+          }
           const startDateStr = deliveryDateStart.toISOString().split('T')[0]
           const validFromDate = new Date(startDateStr + 'T00:00:00')
           requestData.customValidFrom = validFromDate.toISOString()
@@ -1528,20 +1644,7 @@ export const GateControl: React.FC<GateControlProps> = ({
         const data = await response.json()
         setGeneratedQR(data.qrCode)
 
-        // Mostrar mensaje de éxito
-        Alert.alert(
-          '✅ QR Generado',
-          `QR creado exitosamente para: ${policy.description}\n\nCódigo: ${data.qrCode.shortCode}`,
-          [{ text: 'OK' }]
-        )
-
-        // Limpiar formulario
-        setVisitorName('')
-        setIdPhotoUrl(null)
-        setImagePreviewUrl(null)
-        setCompanyName('')
-        setAppName('')
-        setServiceDuration(4)
+        // No limpiar formulario - dejar que el usuario vea el QR generado
       } catch (error) {
         console.error('Error generating QR:', error)
         Alert.alert(
@@ -1866,8 +1969,15 @@ export const GateControl: React.FC<GateControlProps> = ({
                       <Card bordered padding='$3'>
                         <input
                           type="date"
-                          value={friendVisitDate.toISOString().split('T')[0]}
-                          onChange={(e: any) => setFriendVisitDate(new Date(e.target.value))}
+                          value={isValidDate(friendVisitDate) ? friendVisitDate.toISOString().split('T')[0] : ''}
+                          onChange={(e: any) => {
+                            const newDate = new Date(e.target.value)
+                            if (isValidDate(newDate)) {
+                              setFriendVisitDate(newDate)
+                            } else {
+                              Alert.alert('Error', 'Por favor, ingresa una fecha válida.')
+                            }
+                          }}
                           style={{
                             border: 'none',
                             outline: 'none',

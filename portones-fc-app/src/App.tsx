@@ -14,9 +14,7 @@ import tamaguiConfig from '../tamagui.config'
 const queryClient = new QueryClient()
 
 // For development, use localhost. In production, use the deployed API URL
-const API_URL = Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? 'http://localhost:3000'
-  : (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000')
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
 
 type NavigationScreen = 'gateControl' | 'maintenancePayment' | 'revokedAccess' | 'revokedPayment'
 

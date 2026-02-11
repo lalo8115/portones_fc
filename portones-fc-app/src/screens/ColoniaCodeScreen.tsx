@@ -20,6 +20,18 @@ export const ColoniaCodeScreen: React.FC = () => {
   const [remainingSpots, setRemainingSpots] = useState(0)
   const displayName = profile?.full_name?.trim() || fullName.trim()
 
+  const formatColoniaCode = (value: string) => {
+    const raw = value.replace(/[^a-fA-F0-9]/g, '').slice(0, 32)
+    const parts = [
+      raw.slice(0, 8),
+      raw.slice(8, 12),
+      raw.slice(12, 16),
+      raw.slice(16, 20),
+      raw.slice(20, 32)
+    ].filter(Boolean)
+    return parts.join('-')
+  }
+
   useEffect(() => {
     if (profile?.full_name && !fullName) {
       setFullName(profile.full_name)
@@ -136,7 +148,7 @@ export const ColoniaCodeScreen: React.FC = () => {
                 flex={1}
                 placeholder='Código de colonia'
                 value={code}
-                onChangeText={setCode}
+                onChangeText={(value) => setCode(formatColoniaCode(value))}
                 autoCapitalize='none'
                 autoCorrect={false}
                 size='$4'

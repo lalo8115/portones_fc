@@ -71,9 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   } | null>(null)
 
   // For development, use localhost. In production, use the deployed API URL
-  const apiUrl = Platform.OS === 'web' && typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:3000'
-    : (process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com')
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
   
   console.log('API URL:', apiUrl, 'ENV:', process.env.EXPO_PUBLIC_API_URL)
 
