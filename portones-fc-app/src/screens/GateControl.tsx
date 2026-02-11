@@ -550,7 +550,7 @@ export const GateControl: React.FC<GateControlProps> = ({
             >
               <YStack  alignItems='center'>
               <DoorOpen size={34} color={doorOpened ? '$green10' : '$color'}  />
-              <Text color={doorOpened ? '$green10' : 'white'} fontWeight='700' fontSize='$4' selectable={false}>
+              <Text color={doorOpened ? '$green10' : 'white'} fontWeight='700' fontSize='$4' userSelect='none'>
                 {doorOpened ? 'Entrada\nAbierta' : 'Entrada\nPeatonal'}
               </Text>
               </YStack>
