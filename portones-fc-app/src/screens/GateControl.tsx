@@ -444,6 +444,7 @@ export const GateControl: React.FC<GateControlProps> = ({
   // Componente para pantalla principal de portones
   const GatesScreen = () => {
     const [isPressingButton, setIsPressingButton] = useState(false)
+    const [doorOpened, setDoorOpened] = useState(false)
     const fillAnim = useRef(new Animated.Value(0)).current
 
     const handleButtonPressIn = () => {
@@ -453,16 +454,26 @@ export const GateControl: React.FC<GateControlProps> = ({
         toValue: 1,
         duration: 1000,
         useNativeDriver: false
-      }).start()
+      }).start(({ finished }) => {
+        if (finished) {
+          setDoorOpened(true)
+          setTimeout(() => {
+            setDoorOpened(false)
+            setIsPressingButton(false)
+          }, 1500)
+        }
+      })
     }
 
     const handleButtonPressOut = () => {
-      setIsPressingButton(false)
-      Animated.timing(fillAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: false
-      }).start()
+      if (!doorOpened) {
+        setIsPressingButton(false)
+        Animated.timing(fillAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: false
+        }).start()
+      }
     }
 
     return (
@@ -535,12 +546,12 @@ export const GateControl: React.FC<GateControlProps> = ({
               onPress={() => {
                 // Función a implementar
               }}
+              disabled={doorOpened}
             >
               <YStack  alignItems='center'>
-              <DoorOpen size={34} color='$color'  />
-              <Text color='white' fontWeight='700' fontSize='$4'>
-                Entrada {"\n"}
-                Peatonal
+              <DoorOpen size={34} color={doorOpened ? '$green10' : '$color'}  />
+              <Text color={doorOpened ? '$green10' : 'white'} fontWeight='700' fontSize='$4' selectable={false}>
+                {doorOpened ? 'Entrada\nAbierta' : 'Entrada\nPeatonal'}
               </Text>
               </YStack>
             </Button>
