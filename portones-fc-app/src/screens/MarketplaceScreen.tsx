@@ -379,12 +379,12 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
             <Text fontSize='$5' fontWeight='600'>
               Categorías
             </Text>
-            <XStack flexWrap='wrap' gap='$2' justifyContent='space-between'>
+            <XStack flexWrap='wrap' gap='$2' justifyContent='flex-start'>
               {categories.map((category) => (
                 <Button
                   key={category.id}
                   size='$2.5'
-                  width='32%'
+                  width='30%'
                   flexGrow={0}
                   flexShrink={0}
                   backgroundColor={selectedCategory === category.id ? category.color : 'transparent'}
@@ -848,14 +848,14 @@ export const MarketplaceScreen: React.FC<MarketplaceScreenProps> = ({ onBack, ap
                       <Text fontSize='$3' fontWeight='600'>
                         Categoría
                       </Text>
-                      <XStack flexWrap='wrap' gap='$2' justifyContent='space-between'>
+                      <XStack flexWrap='wrap' gap='$2' justifyContent='flex-start'>
                         {categories
                           .filter((category) => category.id !== 'all')
                           .map((category) => (
                             <Button
                               key={category.id}
                               size='$2.5'
-                              width='32%'
+                              width='30%'
                               flexGrow={0}
                               flexShrink={0}
                               backgroundColor={formCategory === category.id ? category.color : 'transparent'}
