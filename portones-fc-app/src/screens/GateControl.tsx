@@ -460,6 +460,13 @@ export const GateControl: React.FC<GateControlProps> = ({
           setTimeout(() => {
             setDoorOpened(false)
             setIsPressingButton(false)
+
+            Animated.timing(fillAnim, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: false
+            }).start()
+
           }, 1500)
         }
       })
@@ -536,7 +543,11 @@ export const GateControl: React.FC<GateControlProps> = ({
               elevate
               bordered
               paddingHorizontal='$4'
-              backgroundColor='rgba(0, 0, 0, 0.35)'
+              backgroundColor={
+                doorOpened
+                  ? 'rgba(34, 197, 94, 0.25)' // verde cuando abre
+                  : 'rgba(0, 0, 0, 0.35)'     // original
+              }
               borderColor='rgba(255, 255, 255, 0.14)'
               pressStyle={{ scale: 0.95, opacity: 0.8 }}
               width="100%"
@@ -2440,7 +2451,7 @@ export const GateControl: React.FC<GateControlProps> = ({
           borderBottomColor='rgba(255,255,255,0.10)'
         >
           <Text fontSize='$7' fontWeight='900' color='white'>
-            Portón Inteligente v1.1
+            Portón Inteligente
           </Text>
           <XStack space='$2'>
             <Button
