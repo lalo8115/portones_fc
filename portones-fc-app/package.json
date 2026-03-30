@@ -4,8 +4,14 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
+    "start:local": "cross-env EXPO_PUBLIC_API_TARGET=local expo start",
+    "start:prod": "cross-env EXPO_PUBLIC_API_TARGET=production expo start",
     "android": "expo start --android",
+    "android:local": "cross-env EXPO_PUBLIC_API_TARGET=local expo start --android",
+    "android:prod": "cross-env EXPO_PUBLIC_API_TARGET=production expo start --android",
     "ios": "expo start --ios",
+    "ios:local": "cross-env EXPO_PUBLIC_API_TARGET=local expo start --ios",
+    "ios:prod": "cross-env EXPO_PUBLIC_API_TARGET=production expo start --ios",
     "web": "expo start --web --port 8081",
     "typecheck": "node --stack_size=16384 ./node_modules/typescript/lib/tsc.js -p tsconfig.json --noEmit",
     "build": "npx expo export --platform web"
@@ -40,6 +46,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "cross-env": "^10.0.0",
     "expo-cli": "^6.0.0",
     "typescript": "~5.9.2"
   },

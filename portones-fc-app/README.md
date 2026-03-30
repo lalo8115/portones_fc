@@ -21,7 +21,8 @@ cp .env.example .env
 Edita `.env` con tus credenciales:
 
 ```env
-EXPO_PUBLIC_API_URL=http://tu-backend-ip:3000
+EXPO_PUBLIC_API_URL=https://portones-fc.onrender.com
+EXPO_PUBLIC_LOCAL_API_URL=http://tu-backend-ip:3000
 EXPO_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=tu-supabase-anon-key
 
@@ -34,10 +35,29 @@ EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=
 **⚠️ Importante para dispositivos físicos:**
 
 - Si pruebas en un dispositivo físico, usa la IP de tu computadora en lugar de `localhost`
-- Ejemplo: `EXPO_PUBLIC_API_URL=http://192.168.1.100:3000`
+- Ejemplo: `EXPO_PUBLIC_LOCAL_API_URL=http://192.168.1.100:3000`
 - Asegúrate de que el backend esté accesible desde la red local
 
-### 3. Iniciar la App
+### 3. Elegir Backend sin Editar Archivos
+
+```bash
+# Backend remoto
+npm run start:prod
+
+# Backend local
+npm run start:local
+```
+
+También puedes usar:
+
+```bash
+npm run android:prod
+npm run android:local
+npm run ios:prod
+npm run ios:local
+```
+
+### 4. Iniciar la App
 
 ```bash
 npm start

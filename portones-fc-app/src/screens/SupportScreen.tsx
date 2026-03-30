@@ -3,6 +3,7 @@ import { ScrollView, Linking, Alert, TextInput } from 'react-native'
 import { YStack, XStack, Text, Button, Card, Circle, Spinner } from 'tamagui'
 import { ChevronLeft } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
+import { API_URL } from '../constants/api'
 
 interface SupportScreenProps {
   onBack: () => void
@@ -14,7 +15,7 @@ export const SupportScreen: React.FC<SupportScreenProps> = ({ onBack }) => {
   const [message, setMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const { getToken } = useAuth()
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000'
+  const apiUrl = API_URL
 
   const handleEmail = async () => {
     const url = `mailto:${supportEmail}`

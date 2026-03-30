@@ -3,6 +3,7 @@ import { ScrollView, Pressable, ActivityIndicator } from 'react-native'
 import { Button, Card, Circle, Text, XStack, YStack, ScrollView as TamaguiScrollView } from 'tamagui'
 import { CreditCard, ChevronDown, ChevronUp } from '@tamagui/lucide-icons'
 import { useAuth } from '../contexts/AuthContext'
+import { API_URL } from '../constants/api'
 
 interface PaymentHistory {
   id: string
@@ -55,9 +56,7 @@ export const PaymentStatusScreen: React.FC<PaymentStatusScreenProps> = ({
         return
       }
 
-      // Ajusta la URL según tu configuración (puede ser localhost:3000, tu dominio en producción, etc.)
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
-      const response = await fetch(`${apiUrl}/payment/history?limit=20`, {
+      const response = await fetch(`${API_URL}/payment/history?limit=20`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

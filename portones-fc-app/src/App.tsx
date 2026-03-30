@@ -9,12 +9,10 @@ import { GateControl } from './screens/GateControl'
 import { LoginScreen } from './screens/LoginScreen'
 import { MaintenancePaymentScreen } from './screens/MaintenancePaymentScreen'
 import { RevokedAccessScreen } from './screens/RevokedAccessScreen'
+import { API_URL } from './constants/api'
 import tamaguiConfig from '../tamagui.config'
 
 const queryClient = new QueryClient()
-
-// For development, use localhost. In production, use the deployed API URL
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
 
 type NavigationScreen = 'gateControl' | 'maintenancePayment' | 'revokedAccess' | 'revokedPayment'
 

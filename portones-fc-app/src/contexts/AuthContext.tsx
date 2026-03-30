@@ -5,6 +5,7 @@ import { createClient, Session } from '@supabase/supabase-js'
 import * as WebBrowser from 'expo-web-browser'
 import * as Linking from 'expo-linking'
 import * as AuthSession from 'expo-auth-session'
+import { API_URL } from '../constants/api'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -70,10 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     reject: (error: any) => void
   } | null>(null)
 
-  // For development, use localhost. In production, use the deployed API URL
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://portones-fc.onrender.com'
-  
-  console.log('API URL:', apiUrl, 'ENV:', process.env.EXPO_PUBLIC_API_URL)
+  const apiUrl = API_URL
 
   const fetchProfile = async (userId: string, token: string) => {
     try {
