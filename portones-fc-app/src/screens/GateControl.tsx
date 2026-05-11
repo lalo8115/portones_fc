@@ -497,7 +497,7 @@ export const GateControl: React.FC<GateControlProps> = ({
             width={'65%'}
 
           >
-            <YStack space='$2' >
+            <YStack space='$1' >
               <Text fontSize='100%' fontWeight='800' color='white'>
                 {profile?.full_name || 'Usuario'}
               </Text>
@@ -522,7 +522,7 @@ export const GateControl: React.FC<GateControlProps> = ({
             </YStack>
           </Card>
 
-          <YStack position='relative' height={'100%'} width={"30%"}>
+          <YStack position='relative' height={'95%'} width={"30%"}>
             <Animated.View
               style={{
                 position: 'absolute',
@@ -742,8 +742,9 @@ export const GateControl: React.FC<GateControlProps> = ({
               elevate
               size='$3.5'
               bordered
+              justifyContent='center'
               padding='$3.5'
-              height={"15%"}
+              height={"18%"}
               $heightSm={{ size: '$3', padding: '$3' }}
               pressStyle={{ scale: 0.97, opacity: 0.8 }}
               onPress={() => {
@@ -1717,24 +1718,6 @@ export const GateControl: React.FC<GateControlProps> = ({
                       <Text fontSize='$2' color='$gray11' numberOfLines={1}>
                         {policy.description}
                       </Text>
-                      <XStack space='$2' alignItems='center' flexWrap='wrap'>
-                        <XStack space='$1' alignItems='center'>
-                          <Circle size={4} backgroundColor='$blue10' />
-                          <Text fontSize='$2' color='$gray11'>{policy.duration}</Text>
-                        </XStack>
-                        <XStack space='$1' alignItems='center'>
-                          <Circle size={4} backgroundColor='$green10' />
-                          <Text fontSize='$2' color='$gray11'>{policy.visits} {policy.visits === 1 ? 'visita' : 'visitas'}</Text>
-                        </XStack>
-                        {policy.maxQRsPerHouse !== null && (
-                          <XStack space='$1' alignItems='center'>
-                            <Circle size={4} backgroundColor='$orange10' />
-                            <Text fontSize='$2' color='$gray11'>
-                              {getActiveQRCount(policy.id)}/{policy.maxQRsPerHouse} disponibles
-                            </Text>
-                          </XStack>
-                        )}
-                      </XStack>
                     </YStack>
                     
                     {/* Flecha */}
@@ -1754,15 +1737,7 @@ export const GateControl: React.FC<GateControlProps> = ({
             </Button>
 
             {/* Botón de escanear QR - Solo para desarrollo */}
-            {__DEV__ && (
-              <Button
-                size='$4'
-                theme='blue'
-                onPress={() => setShowQRScanner(true)}
-              >
-                <Text fontWeight='600'>📷 Escanear QR (Dev)</Text>
-              </Button>
-            )}
+
           </YStack>
         </ScrollView>
       )
@@ -2451,7 +2426,7 @@ export const GateControl: React.FC<GateControlProps> = ({
           borderBottomColor='rgba(255,255,255,0.10)'
         >
           <Text fontSize='$7' fontWeight='900' color='white'>
-            Portón Inteligente
+            Portones Full Control
           </Text>
           <XStack space='$2'>
             <Button

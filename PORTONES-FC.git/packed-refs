@@ -1,0 +1,16 @@
+# pack-refs with: peeled fully-peeled sorted 
+43098115feb9bc34b305686c44ffa33b917bf73c refs/heads/branch-pedro-pruebas
+5a6417dcba15d6f793a2a73b3f09a0888df74080 refs/heads/branch-sparkleto-pruebas
+f17b9dfdea68f4e66a3e6d11a571c2c8eb134bb3 refs/heads/copilot/fix-deploy-error-issue
+bc2a74a5e9a4d7bc5e52f8f9ad5da315aa6c80b6 refs/heads/copilot/review-supabase-changes
+5ef808967818363f8155db83b81903354ca445d1 refs/heads/main
+75291b29de001564244b7c8f833c0532093921e0 refs/heads/merge-lalio-pedro-gg
+6d166988274395c1089522383989932ff1e3fff0 refs/heads/revert-2-copilot/fix-deploy-error-issue
+1acf1e835b17312a07e142af68799d3e0b89d0a5 refs/pull/1/head
+f17b9dfdea68f4e66a3e6d11a571c2c8eb134bb3 refs/pull/2/head
+a2996abea780b888691cde79dd38327a07cdc988 refs/pull/3/head
+9d05026e3ee151ee36cd4135e12a5cc5f5cdbe52 refs/pull/4/head
+688af78ff34c4d37738ba89439185f9b9043dff3 refs/pull/5/head
+5a6417dcba15d6f793a2a73b3f09a0888df74080 refs/pull/6/head
+bc2a74a5e9a4d7bc5e52f8f9ad5da315aa6c80b6 refs/pull/7/head
+661599b3e56936fabc7369d77ab2d9d340eb93e4 refs/pull/7/merge

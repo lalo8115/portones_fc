@@ -45,7 +45,7 @@ interface AuthContextType {
   loading: boolean
   refreshProfile: () => Promise<void>
   getToken: () => Promise<string | null>
-  getColoniaStreets: (coloniaId: string) => Promise<string[]>
+  getColoniaStreets: (coloniaId: string) => Promise<{ nombre: string; streets: string[] }>
   checkHouseAvailability: (coloniaId: string, street: string, externalNumber: string) => Promise<{ available: boolean; remainingSpots: number; maxPeople: number }>
 }
 
@@ -569,7 +569,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return session.access_token
   }
 
-  const getColoniaStreets = async (coloniaId: string): Promise<string[]> => {
+  const getColoniaStreets = async (coloniaId: string): Promise<{ nombre: string; streets: string[] }> => {
     if (!session?.access_token) {
       throw new Error('Sesión no encontrada, vuelve a iniciar sesión')
     }
@@ -590,16 +590,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const data = await response.json()
 
-    // Now update profile with colonia_id using joinColonia
-    try {
-      const updatedProfile = await joinColonia(coloniaId)
-      setProfile(updatedProfile)
-    } catch (err) {
-      // Log error but don't fail - we still have the streets
-      console.error('Error updating colonia_id:', err)
+    return {
+      nombre: data.nombre || '',
+      streets: data.streets || []
     }
-
-    return data.streets || []
   }
 
   const value = {
